@@ -4,8 +4,8 @@ One command to set up a development workstation on **macOS**, **Debian** or **Ub
 zsh + Oh My Zsh, vim, git, curl, Docker, and Go / Python / Node managed by
 [mise](https://mise.jdx.dev).
 
-> **Status:** milestone 5 of 8. Everything except the optional Docker module works; Docker is
-> still a stub.
+> **Status:** milestone 6 of 8. All modules work. Still to come: `doctor.sh`, `uninstall.sh`,
+> CI, and the first release.
 > See [PLAN.md](PLAN.md).
 
 ## Install
@@ -65,7 +65,7 @@ With `--unattended` they are skipped unless you name them with `--with`:
 | zsh | zsh, Oh My Zsh + plugins (pinned), `~/.zshrc` → `config/zsh/zshrc`, login shell | same |
 | vim | system vim + `~/.vimrc` → `config/vim/vimrc` | vim (apt) + same |
 | mise *(optional)* | mise (brew) → Go 1.27.4, Python 3.15.2, Node 26.13.1 | mise (its apt repo) → same |
-| docker *(optional)* | colima + docker CLI | docker-ce (official apt repo) |
+| docker *(optional)* | colima + docker CLI + compose/buildx (brew), colima as a login service | docker-ce + compose/buildx (Docker's apt repo), service enabled, user in `docker` group |
 
 ## Configuration
 
@@ -106,6 +106,17 @@ The folder READMEs ([zsh](config/zsh/README.md), [vim](config/vim/README.md),
 [git](config/git/README.md), [mise](config/mise/README.md)) explain the load order and how to add things. The only change made
 to an existing `~/.gitconfig` is a single `[include]` added at the top. A copy of the original
 goes to the backup folder first.
+
+## Docker
+
+- **macOS:** colima runs a small Linux VM. The `docker` CLI and the compose/buildx plugins come
+  from Homebrew; the plugins are registered in `~/.docker/config.json`. You're asked whether to
+  start colima now and at every login (default Yes); `--unattended` never starts it.
+- **Debian/Ubuntu:** docker-ce comes from Docker's own apt repository. The service is enabled
+  when systemd is running, and your user is added to the `docker` group. That group is
+  equivalent to root on the machine, and it takes effect at your next login.
+- **Existing Docker:** if Docker Desktop, OrbStack or the distribution's `docker.io` is already
+  installed, it is detected and left alone.
 
 ## Versions
 

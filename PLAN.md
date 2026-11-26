@@ -128,7 +128,7 @@ workspace-bootstrap/
 | git, curl, zsh, vim, jq | brew | apt |
 | mise | `brew install mise` | mise's official apt repo (`mise.jdx.dev/deb`) |
 | Go, Python, Node | `mise install` of the pins in `config/mise/workspace-bootstrap.toml`, a **managed copy** in `~/.config/mise/conf.d/`. It is not a symlink, because `mise use -g` rewrites the file that defines a tool. `~/.config/mise/config.toml` stays personal and overrides it | same |
-| Docker | `brew install colima docker docker-compose docker-buildx`, link the Compose/Buildx plugins into Docker's CLI plugin folder, run `colima start` (skipped with `--unattended`) | Docker's official apt repo: `docker-ce`, `docker-ce-cli`, `containerd.io`, compose/buildx plugins. Adds the user to the `docker` group |
+| Docker | `brew install colima docker docker-compose docker-buildx`, register `$(brew --prefix)/lib/docker/cli-plugins` in `~/.docker/config.json`, and `brew services start colima` if you agree (default Yes; never with `--unattended`). An existing Docker Desktop or OrbStack is left alone | Docker's official apt repo: `docker-ce`, `docker-ce-cli`, `containerd.io`, compose/buildx plugins. Adds the user to the `docker` group |
 
 Python comes from mise's precompiled builds, so nothing needs compiling. `pipx` and `uv` can
 also be listed as tools in `mise.toml`.
@@ -180,6 +180,6 @@ also be listed as tools in `mise.toml`.
 3. ✅ **Shell**: zsh, pinned Oh My Zsh and plugins, `config/zsh/` tree (plugins, aliases, functions, options), personal override files, chsh, lazy sudo.
 4. ✅ **Vim and git**: minimal vimrc, shared gitconfig through an include, global gitignore, identity prompt (`WSB_GIT_NAME`/`WSB_GIT_EMAIL` for unattended runs).
 5. ✅ **mise and languages**: mise (brew / mise apt repo), managed-copy config, `mise install` of the latest stable Go/Python/Node, activation through the Oh My Zsh `mise` plugin.
-6. **Docker**: colima on macOS, docker-ce on Debian/Ubuntu.
+6. ✅ **Docker**: colima + CLI plugins on macOS, with a start-at-login prompt (default Yes). docker-ce from Docker's apt repo on Debian/Ubuntu, with the service enabled and the user added to the `docker` group. An existing Docker is detected and left alone.
 7. **Quality**: `doctor.sh`, `uninstall.sh`, CI matrix, plus a CI job that tags a test release and confirms the tag URL installs exactly that version.
 8. **Release**: `scripts/release.sh v0.1.0`, and the README with both one-liners.

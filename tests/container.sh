@@ -151,21 +151,49 @@ fi
 grep -q "apt index is fresh" /tmp/out.log && pass "re-run skips apt update" || fail "re-run refreshed apt index"
 grep -q "base-tools: already set up" /tmp/out.log && pass "base-tools reported as already set up" || fail "base-tools status"
 
-# 2b. optional modules: --with selects without asking
-bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with docker > /tmp/out.log 2>&1
-grep -q "docker: not implemented yet" /tmp/out.log && grep -q "mise: optional, not installed" /tmp/out.log \
-  && pass "--with docker selects only docker" || { fail "--with"; cat /tmp/out.log; }
-
-# 2c. interactive prompts (through a pseudo-terminal): Enter = No, y = yes
+# 2b. interactive prompts (through a pseudo-terminal): Enter = No, y = yes.
+# Input comes from a FIFO kept open by a background writer, so the
+# pseudo-terminal stays open while docker installs.
 if command -v script >/dev/null; then
-  { sleep 1; printf '\n'; sleep 1; printf 'y\n'; sleep 3; } \
-    | script -qec "bash $BOOTSTRAP_DIR/bootstrap.sh" /dev/null > /tmp/out.log 2>&1
+  rm -f /tmp/in; mkfifo /tmp/in
+  ( sleep 1; printf '\n'; sleep 1; printf 'y\n'; sleep 1800 ) > /tmp/in &
+  feeder=$!
+  script -qec "bash $BOOTSTRAP_DIR/bootstrap.sh" /dev/null < /tmp/in > /tmp/out.log 2>&1
+  kill "$feeder" 2>/dev/null
   grep -q "Install Go, Python and Node (via mise)? \[y/N\]" /tmp/out.log && pass "prompts with default No" || { fail "no prompt"; cat /tmp/out.log; }
   grep -q "mise: optional, not installed" /tmp/out.log && pass "Enter declines (default No)" || { fail "Enter did not decline"; cat /tmp/out.log; }
-  grep -q "docker: not implemented yet" /tmp/out.log && pass "'y' accepts" || { fail "'y' not accepted"; cat /tmp/out.log; }
+  grep -q "docker: changed (" /tmp/out.log && pass "'y' accepts: docker installed" || { fail "'y' not accepted"; sed -n '/==> docker/,$p' /tmp/out.log; }
 else
   fail "'script' not available for prompt test"
 fi
+
+# 2c. docker module
+for p in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do
+  dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || fail "package $p missing"
+done
+[ -f /etc/apt/sources.list.d/docker.list ] && grep -q "https://download.docker.com/linux/" /etc/apt/sources.list.d/docker.list \
+  && pass "docker-ce from Docker's apt repository" || fail "docker apt repository"
+docker --version >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && docker buildx version >/dev/null 2>&1 \
+  && pass "docker CLI with compose and buildx plugins" || fail "docker CLI/plugins"
+grep -q "systemd is not running" /tmp/out.log && pass "no systemd: daemon start left to the user" || fail "systemd message"
+
+# --with selects without asking; an installed optional module reports "already set up"
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with docker > /tmp/out.log 2>&1
+grep -q "docker: already set up" /tmp/out.log && grep -q "mise: optional, not installed" /tmp/out.log \
+  && ! grep -q ": changed (" /tmp/out.log \
+  && pass "--with docker: already set up, nothing changed, mise untouched" || { fail "--with docker re-run"; sed -n '/Summary/,$p' /tmp/out.log; }
+
+# Non-root user with sudo: lazy sudo + docker group membership
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq sudo >/dev/null 2>&1
+useradd -m -s /bin/bash dev
+printf 'dev ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/dev
+printf '[safe]\n\tdirectory = *\n' > /home/dev/.gitconfig && chown dev: /home/dev/.gitconfig
+chmod 755 "$HOME"
+su - dev -c "WSB_NO_CHSH=1 bash $BOOTSTRAP_DIR/bootstrap.sh --unattended --only docker" > /tmp/out.log 2>&1
+id -nG dev | tr ' ' '\n' | grep -qx docker && grep -q "added dev to the docker group" /tmp/out.log \
+  && pass "non-root user added to the docker group (via sudo)" || { fail "docker group"; cat /tmp/out.log; }
+su - dev -c "WSB_NO_CHSH=1 bash $BOOTSTRAP_DIR/bootstrap.sh --unattended --only docker" > /tmp/out.log 2>&1
+grep -q "docker: already set up" /tmp/out.log && pass "non-root re-run: already set up" || { fail "non-root re-run"; cat /tmp/out.log; }
 
 # 2d. mise module (optional): Go, Python, Node at the pinned versions
 MISE_SRC="$BOOTSTRAP_DIR/config/mise/workspace-bootstrap.toml"
