@@ -4,8 +4,9 @@ One command to set up a development workstation on **macOS**, **Debian** or **Ub
 zsh + Oh My Zsh, vim, git, curl, Docker, and Go / Python / Node managed by
 [mise](https://mise.jdx.dev).
 
-> **Status:** milestone 1 of 8. The installer, versioning and module runner work;
-> the modules themselves are still stubs. See [PLAN.md](PLAN.md).
+> **Status:** milestone 2 of 8. The installer, versioning, module runner, Homebrew/apt and
+> base tools work. The git, zsh, vim, mise and Docker modules are still stubs.
+> See [PLAN.md](PLAN.md).
 
 ## Install
 
@@ -40,18 +41,31 @@ Any other OS stops with an "Unsupported OS" message before changing anything.
 1. **`install.sh`** (POSIX sh) checks the platform. It installs git and curl: the Xcode Command
    Line Tools on macOS, or apt on Debian/Ubuntu. It then picks the version and checks it out into
    `~/.workspace-bootstrap`.
-2. **`bootstrap.sh`** runs the modules in `modules/` in order. Each one checks before it installs,
-   so re-running is safe. It stops at the first failure and prints a summary.
+2. **`bootstrap.sh`** runs the modules in `modules/` in order and stops at the first failure.
+   The summary shows each module as *changed*, *already set up*, *optional, not installed* or
+   *failed*.
+
+**Idempotent:** every module checks each item (package, plugin, config) before acting and only
+installs what is missing. A second run on the same machine changes nothing and reports every
+module as "already set up". The tests check this.
+
+**Optional modules** (`mise` for Go/Python/Node, and `docker`) are asked about
+interactively with **default No**. If a module is already set up, you aren't asked.
+With `--unattended` they are skipped unless you name them with `--with`:
+
+```sh
+~/.workspace-bootstrap/bootstrap.sh --unattended --with mise,docker
+```
 
 | Module | macOS | Debian / Ubuntu |
 |---|---|---|
 | package-manager | Homebrew | apt |
-| base-tools | brew | apt |
+| base-tools | `packages/base.brew` | `packages/base.apt` |
 | git | gitconfig, global gitignore | same |
 | zsh | zsh + Oh My Zsh (pinned) + plugins | same |
 | vim | vim + minimal vimrc | same |
-| mise | mise → Go, Python, Node (pinned in `config/mise.toml`) | same |
-| docker | colima + docker CLI | docker-ce (official apt repo) |
+| mise *(optional)* | mise → Go, Python, Node (pinned in `config/mise.toml`) | same |
+| docker *(optional)* | colima + docker CLI | docker-ce (official apt repo) |
 
 ## Versions
 
@@ -74,16 +88,18 @@ to run if the checked-out code no longer matches it.
 ## Options
 
 ```
---only LIST       run only these modules (comma separated)
+--with LIST       install these optional modules without asking
+--only LIST       run only these modules (comma separated; implies --with)
 --skip LIST       skip these modules
---unattended      never prompt (needs root or passwordless sudo)
+--unattended      never prompt; optional modules skipped unless --with
+                  (needs root or passwordless sudo)
 --dry-run         show what would be done, change nothing
 --upgrade[=REF]   switch version, then re-run
 --list            list modules
 ```
 
 Environment: `WSB_REF`, `WSB_REPO` (clone URL), `BOOTSTRAP_DIR` (default `~/.workspace-bootstrap`),
-`WSB_UNATTENDED=1`.
+`WSB_UNATTENDED=1`, `WSB_WITH=mise,docker`.
 
 ## Development
 
@@ -99,13 +115,26 @@ arrays and no `mapfile`, and empty arrays must be expanded as `${a[@]+"${a[@]}"}
 
 ### Writing a module
 
-`modules/NN-name.sh` is sourced in a subshell with `lib/common.sh` already loaded. It defines:
+`modules/NN-name.sh` is sourced in a subshell with `lib/common.sh` and `lib/pkg.sh` already
+loaded, and Homebrew is already on PATH. It defines:
 
-- `module_check`: return 0 if everything is already set up.
-- `module_install`: do the work and return 0. Return `$WSB_RC_TODO` if it is not implemented yet.
+- `module_install` (required): it must be idempotent. Check every item, act only on what is
+  missing, and call `mark_changed "what changed"` for each real change. Use `run` for anything
+  that changes the system so `--dry-run` works. Return 0 on success, or `$WSB_RC_TODO` if not
+  implemented yet.
+- `module_check` (optional): return 0 if everything is already in place. For an optional module,
+  this skips the prompt.
+- `MODULE_OPTIONAL=1` and `MODULE_PROMPT="Install …?"`: mark the module as optional.
 
-Helpers: `is_macos`, `is_debian`, `as_root`, `run` (honours `--dry-run`), and `log_info`, `log_ok`,
-`log_warn`, `log_err`.
+Helpers:
+- packages: `pkg_ensure NAME…`, `pkg_ensure_list base` (reads `packages/base.<brew|apt>`),
+  `pkg_installed`, `pkg_apt_refresh`
+- platform and privileges: `is_macos`, `is_debian`, `as_root`
+- prompts: `ask_yes_no "Question?" n`
+- logging: `log_info`, `log_ok`, `log_warn`, `log_err`
+
+Package list files hold one name per line and allow `#` comments. Prefix Homebrew casks with
+`cask:`.
 
 ### Releasing
 

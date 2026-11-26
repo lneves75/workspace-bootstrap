@@ -1,0 +1,9 @@
+# Base tools on macOS (Homebrew formulae; prefix casks with "cask:").
+# curl, unzip, zip, less and ssh ship with macOS; the Xcode Command Line Tools
+# (installed by install.sh) provide git, make and the C compiler, but we
+# install Homebrew's git to stay current.
+git
+wget
+jq
+gnupg
+coreutils

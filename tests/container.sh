@@ -48,9 +48,42 @@ install_from /t/install-main.sh --unattended
 expect_ref v0.0.2 "main URL installs latest release"
 command -v git >/dev/null && command -v curl >/dev/null && pass "git and curl provisioned" || fail "git/curl missing"
 grep -q "All done" /tmp/out.log && pass "bootstrap.sh ran to completion" || { fail "bootstrap.sh did not finish"; tail -n 20 /tmp/out.log; }
+grep -q "base-tools: changed (installed: " /tmp/out.log && pass "first run installs base tools" || { fail "base tools not reported as installed"; tail -n 20 /tmp/out.log; }
+missing=""
+# shellcheck disable=SC2013  # one package name per word
+for p in $(sed -e 's/#.*//' "$BOOTSTRAP_DIR/packages/base.apt"); do
+  dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || missing="$missing $p"
+done
+[ -z "$missing" ] && pass "all base packages installed" || fail "missing packages:$missing"
+grep -q "docker: optional, not installed" /tmp/out.log && grep -q "mise: optional, not installed" /tmp/out.log \
+  && pass "unattended: optional modules skipped" || fail "optional modules not skipped"
 
-# 2. re-run is idempotent
+# 2. re-run is idempotent: succeeds and changes nothing
+cp /tmp/out.log /tmp/first.log
 install_from /t/install-main.sh --unattended && pass "re-run succeeds" || fail "re-run failed"
+if grep -q ": changed (" /tmp/out.log; then
+  fail "re-run changed something:"; grep ": changed (" /tmp/out.log
+else
+  pass "re-run changes nothing"
+fi
+grep -q "apt index is fresh" /tmp/out.log && pass "re-run skips apt update" || fail "re-run refreshed apt index"
+grep -q "base-tools: already set up" /tmp/out.log && pass "base-tools reported as already set up" || fail "base-tools status"
+
+# 2b. optional modules: --with selects without asking
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with docker > /tmp/out.log 2>&1
+grep -q "docker: not implemented yet" /tmp/out.log && grep -q "mise: optional, not installed" /tmp/out.log \
+  && pass "--with docker selects only docker" || { fail "--with"; cat /tmp/out.log; }
+
+# 2c. interactive prompts (through a pseudo-terminal): Enter = No, y = yes
+if command -v script >/dev/null; then
+  { sleep 1; printf '\n'; sleep 1; printf 'y\n'; sleep 3; } \
+    | script -qec "bash $BOOTSTRAP_DIR/bootstrap.sh" /dev/null > /tmp/out.log 2>&1
+  grep -q "Install Go, Python and Node (via mise)? \[y/N\]" /tmp/out.log && pass "prompts with default No" || { fail "no prompt"; cat /tmp/out.log; }
+  grep -q "mise: optional, not installed" /tmp/out.log && pass "Enter declines (default No)" || { fail "Enter did not decline"; cat /tmp/out.log; }
+  grep -q "docker: not implemented yet" /tmp/out.log && pass "'y' accepts" || { fail "'y' not accepted"; cat /tmp/out.log; }
+else
+  fail "'script' not available for prompt test"
+fi
 
 # 3. tag URL pins its own version (existing checkout)
 install_from /t/install-v0.0.1.sh --unattended

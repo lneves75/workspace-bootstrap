@@ -1,14 +1,15 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034  # MODULE_* are read by bootstrap.sh
 #
-# Module: docker
+# Module: docker (optional)
 # colima + docker CLI on macOS, docker-ce on Debian/Ubuntu.
 #
-# Contract (see bootstrap.sh):
-#   module_check    return 0 if everything is already set up (nothing to do)
-#   module_install  install/configure; return 0 on success,
-#                   $WSB_RC_TODO if not implemented, anything else on failure
+# Optional: asked interactively (default No); skipped in --unattended mode
+# unless selected with --with docker (or --only docker).
 #
 # TODO(milestone 6)
+
+MODULE_OPTIONAL=1
+MODULE_PROMPT="Install Docker (colima on macOS, docker-ce on Debian/Ubuntu)?"
 
 module_check()   { return 1; }
 module_install() { return "$WSB_RC_TODO"; }

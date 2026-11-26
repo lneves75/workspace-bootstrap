@@ -1,14 +1,15 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034  # MODULE_* are read by bootstrap.sh
 #
-# Module: mise
+# Module: mise (optional)
 # mise, then Go, Python and Node from config/mise.toml.
 #
-# Contract (see bootstrap.sh):
-#   module_check    return 0 if everything is already set up (nothing to do)
-#   module_install  install/configure; return 0 on success,
-#                   $WSB_RC_TODO if not implemented, anything else on failure
+# Optional: asked interactively (default No); skipped in --unattended mode
+# unless selected with --with mise (or --only mise).
 #
 # TODO(milestone 5)
+
+MODULE_OPTIONAL=1
+MODULE_PROMPT="Install Go, Python and Node (via mise)?"
 
 module_check()   { return 1; }
 module_install() { return "$WSB_RC_TODO"; }

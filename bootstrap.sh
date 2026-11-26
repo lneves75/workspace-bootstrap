@@ -17,16 +17,17 @@ usage() {
 Usage: bootstrap.sh [options]
 
 Options:
-  --only LIST        run only these modules (comma separated)
-  --skip LIST        skip these modules (comma separated)
-  --unattended       never prompt (CI, containers)
+  --with LIST        install these optional modules without asking
+  --only LIST        run only these modules (comma separated; implies --with)
+  --skip LIST        skip these modules
+  --unattended       never prompt; optional modules are skipped unless --with
   --dry-run          show what would be done, change nothing
   --upgrade[=REF]    switch to the latest release (or REF) and re-run
   --list             list modules and exit
   -h, --help         show this help
 
-Modules:
-$(list_modules | sed 's/^/  /')
+Modules (* = optional, asked with default No):
+$(list_modules_annotated | sed 's/^/  /')
 EOF
 }
 
@@ -46,10 +47,23 @@ module_name() {
   printf '%s' "${base#[0-9][0-9]-}"
 }
 
+module_is_optional() {
+  grep -q '^MODULE_OPTIONAL=1' "$1"
+}
+
 list_modules() {
   local f
   while IFS= read -r f; do
     module_name "$f"; printf '\n'
+  done < <(module_files)
+}
+
+list_modules_annotated() {
+  local f
+  while IFS= read -r f; do
+    module_name "$f"
+    if module_is_optional "$f"; then printf ' *'; fi
+    printf '\n'
   done < <(module_files)
 }
 
@@ -62,22 +76,27 @@ in_list() { # in_list NAME "a,b,c"
 
 WSB_ONLY=""
 WSB_SKIP=""
+WSB_WITH="${WSB_WITH:-}"
 WSB_UNATTENDED="${WSB_UNATTENDED:-0}"
 WSB_DRY_RUN=0
 WSB_UPGRADE=""
 PASSTHRU=()
 
+need_value() { [[ $1 -ge 2 ]] || die "$2 needs a value"; }
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --only)        [[ $# -ge 2 ]] || die "--only needs a value"; WSB_ONLY=$2; PASSTHRU+=("$1" "$2"); shift ;;
+    --only)        need_value $# "$1"; WSB_ONLY=$2; PASSTHRU+=("$1" "$2"); shift ;;
     --only=*)      WSB_ONLY=${1#*=}; PASSTHRU+=("$1") ;;
-    --skip)        [[ $# -ge 2 ]] || die "--skip needs a value"; WSB_SKIP=$2; PASSTHRU+=("$1" "$2"); shift ;;
+    --skip)        need_value $# "$1"; WSB_SKIP=$2; PASSTHRU+=("$1" "$2"); shift ;;
     --skip=*)      WSB_SKIP=${1#*=}; PASSTHRU+=("$1") ;;
+    --with)        need_value $# "$1"; WSB_WITH=$2; PASSTHRU+=("$1" "$2"); shift ;;
+    --with=*)      WSB_WITH=${1#*=}; PASSTHRU+=("$1") ;;
     --unattended)  WSB_UNATTENDED=1; PASSTHRU+=("$1") ;;
     --dry-run)     WSB_DRY_RUN=1; PASSTHRU+=("$1") ;;
     --upgrade)     WSB_UPGRADE=latest ;;
     --upgrade=*)   WSB_UPGRADE=${1#*=} ;;
-    --list)        list_modules; exit 0 ;;
+    --list)        list_modules_annotated; exit 0 ;;
     -h|--help)     usage; exit 0 ;;
     *)             usage >&2; die "Unknown option: $1" ;;
   esac
@@ -85,9 +104,9 @@ while [[ $# -gt 0 ]]; do
 done
 export WSB_UNATTENDED WSB_DRY_RUN
 
-# Validate module names given to --only / --skip.
+# Validate module names given to --only / --skip / --with.
 ALL_MODULES=$(list_modules | tr '\n' ',')
-for name in ${WSB_ONLY//,/ } ${WSB_SKIP//,/ }; do
+for name in ${WSB_ONLY//,/ } ${WSB_SKIP//,/ } ${WSB_WITH//,/ }; do
   in_list "$name" "$ALL_MODULES" || die "Unknown module: $name (see --list)"
 done
 
@@ -131,35 +150,74 @@ wsb_sudo_keepalive
 
 SUMMARY=()
 FAILED=0
+CHANGES_FILE=$(mktemp "${TMPDIR:-/tmp}/wsb-changes.XXXXXX")
+trap 'rm -f "$CHANGES_FILE"; [[ -n "${WSB_SUDO_PID:-}" ]] && kill "$WSB_SUDO_PID" 2>/dev/null; true' EXIT
+
+# Module subshell exit codes (besides 0 = success and WSB_RC_TODO):
+RC_ALREADY=10        # module_check says everything is in place
+RC_NOT_SELECTED=12   # optional module declined / not selected
+RC_WOULD_ASK=13      # optional module, dry run: would prompt
 
 run_module() {
-  local file=$1 name=$2 rc
+  local file=$1 name=$2 selected=$3 rc changes
   log_step "$name"
+  : > "$CHANGES_FILE"
   set +e
   (
     set -euo pipefail
+    export WSB_CHANGES_FILE="$CHANGES_FILE"
+    MODULE_OPTIONAL=0
+    MODULE_PROMPT="Install $name?"
     module_check()   { return 1; }
     module_install() { return "$WSB_RC_TODO"; }
+    # shellcheck source=lib/pkg.sh
+    source "$WSB_ROOT/lib/pkg.sh"
+    wsb_load_brew_env
     # shellcheck disable=SC1090
     source "$file"
+
     if module_check; then
       log_ok "already set up"
-      exit 10
+      exit $RC_ALREADY
     fi
-    if [[ "$WSB_DRY_RUN" == 1 ]]; then
-      log_info "would install/configure"
-      exit 11
+
+    if [[ "$MODULE_OPTIONAL" == 1 && "$selected" != 1 ]]; then
+      if [[ "$WSB_DRY_RUN" == 1 ]]; then
+        log_info "optional: would ask \"$MODULE_PROMPT\" (default No)"
+        exit $RC_WOULD_ASK
+      fi
+      if [[ "$WSB_UNATTENDED" == 1 ]]; then
+        log_info "optional, not selected (use --with $name)"
+        exit $RC_NOT_SELECTED
+      fi
+      if ! ask_yes_no "$MODULE_PROMPT" n; then
+        log_info "skipped"
+        exit $RC_NOT_SELECTED
+      fi
     fi
+
     module_install
   )
   rc=$?
   set -e
+
+  changes=$(wc -l < "$CHANGES_FILE" | tr -d ' ')
   case $rc in
-    0)            log_ok "done";              SUMMARY+=("✔ $name: installed") ;;
-    10)                                       SUMMARY+=("✔ $name: already set up") ;;
-    11)                                       SUMMARY+=("· $name: would run (dry run)") ;;
-    "$WSB_RC_TODO") log_warn "not implemented yet"; SUMMARY+=("· $name: not implemented yet") ;;
-    *)            log_err "failed (exit $rc)"; SUMMARY+=("✖ $name: failed (exit $rc)"); FAILED=1 ;;
+    0)
+      if [[ "$changes" -gt 0 && "$WSB_DRY_RUN" == 1 ]]; then
+        SUMMARY+=("· $name: would change ($(paste -sd';' "$CHANGES_FILE" | sed 's/;/; /g'))")
+      elif [[ "$changes" -gt 0 ]]; then
+        log_ok "done"
+        SUMMARY+=("✔ $name: changed ($(paste -sd';' "$CHANGES_FILE" | sed 's/;/; /g'))")
+      else
+        SUMMARY+=("✔ $name: already set up")
+      fi
+      ;;
+    "$RC_ALREADY")      SUMMARY+=("✔ $name: already set up") ;;
+    "$RC_NOT_SELECTED") SUMMARY+=("· $name: optional, not installed") ;;
+    "$RC_WOULD_ASK")    SUMMARY+=("· $name: optional, would ask (default No)") ;;
+    "$WSB_RC_TODO")     log_warn "not implemented yet"; SUMMARY+=("· $name: not implemented yet") ;;
+    *)                  log_err "failed (exit $rc)"; SUMMARY+=("✖ $name: failed (exit $rc)"); FAILED=1 ;;
   esac
 }
 
@@ -171,7 +229,9 @@ while IFS= read -r file <&3; do
     SUMMARY+=("· $name: skipped")
     continue
   fi
-  run_module "$file" "$name"
+  selected=0
+  if in_list "$name" "$WSB_WITH" || in_list "$name" "$WSB_ONLY"; then selected=1; fi
+  run_module "$file" "$name" "$selected"
   # Later modules depend on earlier ones: stop at the first failure.
   [[ $FAILED == 0 ]] || break
 done 3< <(module_files)

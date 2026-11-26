@@ -108,6 +108,65 @@ run() {
   fi
 }
 
+# --- change tracking --------------------------------------------------------
+
+# Modules must be idempotent: check every item first and only act on what is
+# missing. Whenever a module actually changes the system it calls
+# mark_changed, so the runner can tell "installed/updated" from
+# "already set up". A second run on the same machine should change nothing.
+mark_changed() {
+  if [[ -n "${WSB_CHANGES_FILE:-}" ]]; then
+    printf '%s\n' "$*" >> "$WSB_CHANGES_FILE"
+  fi
+  return 0
+}
+
+# --- prompts ----------------------------------------------------------------
+
+# ask_yes_no QUESTION [DEFAULT]   DEFAULT is n (default) or y. Returns 0 for yes.
+# Reads from the terminal even when stdin is redirected. With --unattended or
+# without any terminal it returns the default without asking.
+ask_yes_no() {
+  local question=$1 default=${2:-n} hint ans=""
+  if [[ "$default" == y ]]; then hint="[Y/n]"; else hint="[y/N]"; fi
+
+  if [[ "${WSB_UNATTENDED:-0}" == 1 ]]; then
+    ans=""
+  elif [[ -t 0 ]]; then
+    read -r -p "    $question $hint " ans || ans=""
+  elif (exec </dev/tty) 2>/dev/null; then
+    read -r -p "    $question $hint " ans </dev/tty || ans=""
+  fi
+
+  case "$ans" in
+    [Yy]|[Yy][Ee][Ss]) return 0 ;;
+    [Nn]|[Nn][Oo])     return 1 ;;
+  esac
+  [[ "$default" == y ]]
+}
+
+# --- environment ------------------------------------------------------------
+
+# Put Homebrew on PATH for this process (it may have been installed by an
+# earlier module, in another subshell).
+wsb_load_brew_env() {
+  is_macos || return 0
+  local brew_bin
+  for brew_bin in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [[ -x "$brew_bin" ]]; then
+      eval "$("$brew_bin" shellenv)"
+      return 0
+    fi
+  done
+  return 0
+}
+
+wsb_state_dir() {
+  local dir="${XDG_STATE_HOME:-$HOME/.local/state}/workspace-bootstrap"
+  mkdir -p "$dir"
+  printf '%s' "$dir"
+}
+
 # --- module return codes ----------------------------------------------------
 
 # module_install may return this to report "not implemented yet".

@@ -13,6 +13,9 @@ https://github.com/lneves75/workspace-bootstrap.
 | 3 | Supported OS | macOS, Debian and Ubuntu only. Anything else **stops with an "unsupported OS" message** |
 | 4 | Vim | **minimal** vimrc, no plugins |
 | 5 | Versioning | The default URL installs the **latest release**. A **tag in the URL** pins that release, and every later step uses that same version |
+| 6 | Idempotency | Every module checks each item (zsh, plugins, packages, config) and acts only on what is missing. A second run changes nothing, and the tests check this |
+| 7 | Optional modules | `mise` (languages) and `docker` prompt with **default No**. `--unattended` skips them unless `--with` names them. Already set up means no prompt |
+| 8 | Remote | `github.com/lneves75/workspace-bootstrap` is created **private**. It must become public before the curl one-liner can work |
 
 ## 1. User experience
 
@@ -74,21 +77,21 @@ How `install.sh` picks the version, in priority order:
 ```
 workspace-bootstrap/
 ├── install.sh                # stage 0, holds WSB_PINNED_REF
-├── bootstrap.sh              # stage 1 (--only, --skip, --unattended, --dry-run, --upgrade)
+├── bootstrap.sh              # stage 1 (--with, --only, --skip, --unattended, --dry-run, --upgrade)
 ├── lib/
 │   ├── common.sh             # logging, OS/arch detection, unsupported-OS exit, sudo keep-alive
-│   └── pkg.sh                # pkg_install → brew (macOS) | apt (Debian/Ubuntu)
+│   └── pkg.sh                # pkg_ensure (idempotent) → brew (macOS) | apt (Debian/Ubuntu)
 ├── modules/
 │   ├── 00-package-manager.sh # Homebrew on macOS, apt update on Debian/Ubuntu
 │   ├── 10-base-tools.sh      # git, curl, wget, unzip, jq, build tools
 │   ├── 20-git.sh             # gitconfig, global gitignore, name/email prompt
 │   ├── 30-zsh.sh             # zsh, Oh My Zsh (pinned), plugins, chsh
 │   ├── 40-vim.sh             # vim + minimal vimrc
-│   ├── 50-mise.sh            # mise + `mise install` (Go, Python, Node)
-│   └── 60-docker.sh          # colima (macOS) | docker-ce (Debian/Ubuntu)
+│   ├── 50-mise.sh            # optional: mise + `mise install` (Go, Python, Node)
+│   └── 60-docker.sh          # optional: colima (macOS) | docker-ce (Debian/Ubuntu)
 ├── packages/
-│   ├── Brewfile
-│   └── apt.txt
+│   ├── base.brew             # one formula per line ("cask:" prefix for casks)
+│   └── base.apt
 ├── config/
 │   └── mise.toml             # [tools] go = "x.y.z", python = "x.y.z", node = "x.y.z"
 ├── dotfiles/
@@ -133,7 +136,10 @@ also be listed as tools in `mise.toml`.
 
 ## 7. Cross-cutting rules
 
-- Idempotent. `--unattended` never prompts, for CI and containers.
+- Idempotent at item level. Modules call `mark_changed` for every real change, so the summary
+  says *changed* or *already set up*.
+- `--unattended` never prompts, for CI and containers. Optional modules are then skipped unless
+  `--with` names them.
 - Ask for sudo once at the start and keep it alive during the run.
 - `set -euo pipefail`, clear `==>` / `✔` / `✖` log lines, and a summary at the end.
 - Detect arm64/x86_64, which sets the Homebrew prefix and Docker's apt arch.
@@ -141,8 +147,8 @@ also be listed as tools in `mise.toml`.
 
 ## 8. Milestones
 
-1. **Skeleton + versioning**: `install.sh` (OS check that stops on unsupported systems, git/curl, version resolution, clone, `.version`), `bootstrap.sh` with empty modules, `lib/common.sh`, `scripts/release.sh`. Test in Ubuntu and Debian containers, and on a Fedora container to confirm it stops with the unsupported message.
-2. **Package layer**: `pkg.sh`, Homebrew, Brewfile, apt.txt, base tools.
+1. ✅ **Skeleton + versioning**: `install.sh` (OS check that stops on unsupported systems, git/curl, version resolution, clone, `.version`), `bootstrap.sh` with empty modules, `lib/common.sh`, `scripts/release.sh`. Test in Ubuntu and Debian containers, and on a Fedora container to confirm it stops with the unsupported message.
+2. ✅ **Package layer**: `pkg.sh`, Homebrew, `packages/base.{brew,apt}`, base tools, idempotency and optional-module framework.
 3. **Shell**: zsh, pinned Oh My Zsh and plugins, zshrc, chsh.
 4. **Vim and git**: minimal vimrc, gitconfig, global gitignore.
 5. **mise and languages**: install mise, `config/mise.toml`, `mise install`, version checks.

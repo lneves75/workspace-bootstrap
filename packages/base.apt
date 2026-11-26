@@ -1,0 +1,13 @@
+# Base tools on Debian/Ubuntu.
+ca-certificates
+curl
+wget
+git
+gnupg
+unzip
+zip
+jq
+less
+file
+openssh-client
+build-essential
