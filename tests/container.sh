@@ -2,7 +2,8 @@
 # Runs inside a test container (see tests/run.sh). /t holds the fake remote
 # (remote.git) and install.sh as served from main and from tag v0.0.1.
 # pass/fail always succeed, so `A && pass || fail` is safe here.
-# shellcheck disable=SC2015
+# Messages contain a literal "~", on purpose.
+# shellcheck disable=SC2015,SC2088
 set -u
 
 MODE=${1:-supported}
@@ -44,6 +45,7 @@ printf '[safe]\n\tdirectory = *\n' > "$HOME/.gitconfig"
 
 # 1. fresh machine (no git/curl), main URL → latest release
 command -v git >/dev/null && fail "image already has git (test assumes a bare image)"
+printf '# my old zshrc\n' > "$HOME/.zshrc"     # must end up in the backup
 install_from /t/install-main.sh --unattended
 expect_ref v0.0.2 "main URL installs latest release"
 command -v git >/dev/null && command -v curl >/dev/null && pass "git and curl provisioned" || fail "git/curl missing"
@@ -57,6 +59,50 @@ done
 [ -z "$missing" ] && pass "all base packages installed" || fail "missing packages:$missing"
 grep -q "docker: optional, not installed" /tmp/out.log && grep -q "mise: optional, not installed" /tmp/out.log \
   && pass "unattended: optional modules skipped" || fail "optional modules not skipped"
+
+# 1b. zsh module
+. "$BOOTSTRAP_DIR/versions.env"
+command -v zsh >/dev/null && pass "zsh installed" || fail "zsh missing"
+[ "$(git -C "$HOME/.oh-my-zsh" rev-parse HEAD 2>/dev/null)" = "$OMZ_COMMIT" ] \
+  && pass "Oh My Zsh at pinned commit" || fail "Oh My Zsh not at $OMZ_COMMIT"
+plugins_ok=1
+while read -r pname _ pcommit _; do
+  case "$pname" in ''|\#*) continue ;; esac
+  [ "$(git -C "$HOME/.oh-my-zsh/custom/plugins/$pname" rev-parse HEAD 2>/dev/null)" = "$pcommit" ] || { plugins_ok=0; fail "plugin $pname not at $pcommit"; }
+done < "$BOOTSTRAP_DIR/config/zsh/external-plugins.txt"
+[ $plugins_ok = 1 ] && pass "external plugins at pinned commits"
+[ "$(readlink "$HOME/.zshrc")" = "$BOOTSTRAP_DIR/config/zsh/zshrc" ] && pass "~/.zshrc linked into the repo" || fail "~/.zshrc not linked"
+grep -qx '# my old zshrc' "$HOME"/.workspace-bootstrap-backup/*/.zshrc 2>/dev/null \
+  && pass "previous ~/.zshrc backed up" || fail "previous ~/.zshrc not backed up"
+[ "$(getent passwd root | cut -d: -f7 | xargs basename)" = zsh ] && pass "login shell is zsh" || fail "login shell not zsh"
+
+# An interactive zsh loads the config cleanly, with our plugins, aliases and functions.
+zsh -i -c 'print -r -- "PLUGINS=${plugins[*]}"; print -r -- "LAST=${plugins[-1]}"; alias wsb; whence -w mkcd up; print -r -- "HIST=$SAVEHIST"' \
+  > /tmp/zsh.out 2> /tmp/zsh.err
+if [ -s /tmp/zsh.err ]; then fail "zsh startup wrote to stderr:"; cat /tmp/zsh.err; else pass "zsh starts without errors"; fi
+grep -q '^PLUGINS=git .*zsh-autosuggestions zsh-syntax-highlighting$' /tmp/zsh.out && pass "plugins loaded" || { fail "plugins"; cat /tmp/zsh.out; }
+grep -q '^LAST=zsh-syntax-highlighting$' /tmp/zsh.out && pass "zsh-syntax-highlighting loads last" || fail "plugin order"
+grep -q "^wsb=.*bootstrap.sh" /tmp/zsh.out && grep -q '^mkcd: function$' /tmp/zsh.out && pass "aliases and functions defined" || { fail "aliases/functions"; cat /tmp/zsh.out; }
+grep -q '^HIST=100000$' /tmp/zsh.out && pass "options.zsh applied after Oh My Zsh" || fail "options.zsh"
+
+# Personal files are picked up.
+mkdir -p "$HOME/.zshrc.d"
+printf 'WSB_EXTRA_PLUGINS=(extract)\n' > "$HOME/.zshrc.pre.local"
+printf 'alias fromd=1\n' > "$HOME/.zshrc.d/mine.zsh"
+printf 'alias fromlocal=1\n' > "$HOME/.zshrc.local"
+zsh -i -c 'print -r -- "${plugins[*]}"; alias fromd fromlocal' > /tmp/zsh.out 2>&1
+grep -q ' extract ' /tmp/zsh.out && grep -q '^fromd=1$' /tmp/zsh.out && grep -q '^fromlocal=1$' /tmp/zsh.out \
+  && pass "~/.zshrc.pre.local, ~/.zshrc.d and ~/.zshrc.local are loaded" || { fail "personal files"; cat /tmp/zsh.out; }
+rm -rf "$HOME/.zshrc.d" "$HOME/.zshrc.pre.local" "$HOME/.zshrc.local"
+
+# An Oh My Zsh installed some other way (on a branch) is left alone.
+H2=/tmp/home2; mkdir -p "$H2/.oh-my-zsh"
+git -C "$H2/.oh-my-zsh" init -q -b master
+git -C "$H2/.oh-my-zsh" -c user.name=t -c user.email=t@x commit -q --allow-empty -m mine
+mine=$(git -C "$H2/.oh-my-zsh" rev-parse HEAD)
+HOME=$H2 WSB_NO_CHSH=1 bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --only zsh > /tmp/out.log 2>&1
+[ "$(git -C "$H2/.oh-my-zsh" rev-parse HEAD)" = "$mine" ] && grep -q "not managed by workspace-bootstrap, left as is" /tmp/out.log \
+  && pass "user's own Oh My Zsh checkout left untouched" || { fail "user's Oh My Zsh was modified"; cat /tmp/out.log; }
 
 # 2. re-run is idempotent: succeeds and changes nothing
 cp /tmp/out.log /tmp/first.log

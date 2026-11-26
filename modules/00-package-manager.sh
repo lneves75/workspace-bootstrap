@@ -26,6 +26,9 @@ module_install() {
   fi
 
   log_info "installing Homebrew"
+  # The Homebrew installer uses sudo itself; in NONINTERACTIVE mode it needs
+  # sudo to work without a password prompt, so authenticate first.
+  wsb_sudo_ensure
   NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL "$WSB_HOMEBREW_INSTALL_URL")"
   wsb_load_brew_env
   command_exists brew || { log_err "brew not found after installation"; return 1; }

@@ -4,8 +4,8 @@ One command to set up a development workstation on **macOS**, **Debian** or **Ub
 zsh + Oh My Zsh, vim, git, curl, Docker, and Go / Python / Node managed by
 [mise](https://mise.jdx.dev).
 
-> **Status:** milestone 2 of 8. The installer, versioning, module runner, Homebrew/apt and
-> base tools work. The git, zsh, vim, mise and Docker modules are still stubs.
+> **Status:** milestone 3 of 8. The installer, versioning, module runner, Homebrew/apt, base
+> tools and zsh + Oh My Zsh work. The git, vim, mise and Docker modules are still stubs.
 > See [PLAN.md](PLAN.md).
 
 ## Install
@@ -62,10 +62,33 @@ With `--unattended` they are skipped unless you name them with `--with`:
 | package-manager | Homebrew | apt |
 | base-tools | `packages/base.brew` | `packages/base.apt` |
 | git | gitconfig, global gitignore | same |
-| zsh | zsh + Oh My Zsh (pinned) + plugins | same |
+| zsh | zsh, Oh My Zsh + plugins (pinned), `~/.zshrc` → `config/zsh/zshrc`, login shell | same |
 | vim | vim + minimal vimrc | same |
-| mise *(optional)* | mise → Go, Python, Node (pinned in `config/mise.toml`) | same |
+| mise *(optional)* | mise → Go, Python, Node (pinned in `config/mise/config.toml`) | same |
 | docker *(optional)* | colima + docker CLI | docker-ce (official apt repo) |
+
+## Configuration
+
+Everything shared lives in [`config/`](config), one folder per tool. Entry files are symlinked
+into your home directory, so `wsb --upgrade` updates them. Anything already there is moved to
+`~/.workspace-bootstrap-backup/<timestamp>/` first.
+
+```
+config/zsh/
+├── zshrc                  → ~/.zshrc (loader only)
+├── env.zsh                PATH, Homebrew, EDITOR
+├── omz.zsh                Oh My Zsh theme and plugin list
+├── options.zsh            setopt, history
+├── external-plugins.txt   non-bundled plugins, pinned to a commit
+├── plugins/<plugin>.zsh   settings for each plugin
+├── aliases/*.zsh          aliases, one file per topic
+└── functions/*.zsh        shell functions, one file per topic
+```
+
+Personal, per-machine settings never go in the repo, and workspace-bootstrap never touches them:
+`~/.zshrc.pre.local` (before Oh My Zsh, e.g. `WSB_EXTRA_PLUGINS=(kubectl)`), `~/.zshrc.d/*.zsh`
+and `~/.zshrc.local` (last). See [config/zsh/README.md](config/zsh/README.md) for the full load
+order and how to add aliases, functions and plugins.
 
 ## Versions
 
@@ -92,14 +115,17 @@ to run if the checked-out code no longer matches it.
 --only LIST       run only these modules (comma separated; implies --with)
 --skip LIST       skip these modules
 --unattended      never prompt; optional modules skipped unless --with
-                  (needs root or passwordless sudo)
+                  (anything needing root then requires passwordless sudo)
 --dry-run         show what would be done, change nothing
 --upgrade[=REF]   switch version, then re-run
 --list            list modules
 ```
 
 Environment: `WSB_REF`, `WSB_REPO` (clone URL), `BOOTSTRAP_DIR` (default `~/.workspace-bootstrap`),
-`WSB_UNATTENDED=1`, `WSB_WITH=mise,docker`.
+`WSB_UNATTENDED=1`, `WSB_WITH=mise,docker`, `WSB_NO_CHSH=1` (don't change the login shell).
+
+sudo is only requested when a step needs root, so a re-run with nothing to do never asks for a
+password.
 
 ## Development
 
@@ -129,6 +155,8 @@ loaded, and Homebrew is already on PATH. It defines:
 Helpers:
 - packages: `pkg_ensure NAME…`, `pkg_ensure_list base` (reads `packages/base.<brew|apt>`),
   `pkg_installed`, `pkg_apt_refresh`
+- files: `link_file SRC DEST` (symlink, backing up what was there),
+  `git_pinned_checkout NAME DIR URL COMMIT` (leaves checkouts it didn't make alone)
 - platform and privileges: `is_macos`, `is_debian`, `as_root`
 - prompts: `ask_yes_no "Question?" n`
 - logging: `log_info`, `log_ok`, `log_warn`, `log_err`

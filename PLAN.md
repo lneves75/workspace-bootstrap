@@ -52,7 +52,7 @@ How `install.sh` picks the version, in priority order:
 4. If there are no releases yet, `main`, with a warning.
 
 **Every later step uses that version:**
-- The repo is cloned at that tag (`git clone --branch <tag> --depth 1`). `bootstrap.sh`, its modules, the dotfiles and the package lists all come from that tag.
+- The repo is checked out at that tag (shallow fetch of exactly that ref). `bootstrap.sh`, its modules, `config/` and the package lists all come from that tag.
 - The selected version is saved to `~/.workspace-bootstrap/.version`, and `bootstrap.sh` refuses to run if what is checked out differs from it.
 - Third-party versions are pinned inside the repo, so a given tag installs the same tools every time:
   - The mise config sets exact Go, Python and Node versions.
@@ -79,8 +79,9 @@ workspace-bootstrap/
 ├── install.sh                # stage 0, holds WSB_PINNED_REF
 ├── bootstrap.sh              # stage 1 (--with, --only, --skip, --unattended, --dry-run, --upgrade)
 ├── lib/
-│   ├── common.sh             # logging, OS/arch detection, unsupported-OS exit, sudo keep-alive
-│   └── pkg.sh                # pkg_ensure (idempotent) → brew (macOS) | apt (Debian/Ubuntu)
+│   ├── common.sh             # logging, OS/arch detection, prompts, lazy sudo, mark_changed
+│   ├── pkg.sh                # pkg_ensure (idempotent) → brew (macOS) | apt (Debian/Ubuntu)
+│   └── files.sh              # link_file (with backup), git_pinned_checkout
 ├── modules/
 │   ├── 00-package-manager.sh # Homebrew on macOS, apt update on Debian/Ubuntu
 │   ├── 10-base-tools.sh      # git, curl, wget, unzip, jq, build tools
@@ -92,18 +93,28 @@ workspace-bootstrap/
 ├── packages/
 │   ├── base.brew             # one formula per line ("cask:" prefix for casks)
 │   └── base.apt
-├── config/
-│   └── mise.toml             # [tools] go = "x.y.z", python = "x.y.z", node = "x.y.z"
-├── dotfiles/
-│   ├── zshrc  vimrc  gitconfig  gitignore_global
-├── versions.env              # pinned Oh My Zsh / plugin commits, mise version
+├── config/                   # all shared configuration, one folder per tool
+│   ├── zsh/
+│   │   ├── zshrc             # → ~/.zshrc; loader only
+│   │   ├── env.zsh           # PATH, Homebrew, EDITOR
+│   │   ├── omz.zsh           # theme + plugin list, loads Oh My Zsh
+│   │   ├── options.zsh       # setopt, history
+│   │   ├── external-plugins.txt  # name, repo, pinned commit
+│   │   ├── plugins/<plugin>.zsh  # per-plugin settings
+│   │   ├── aliases/*.zsh     # aliases by topic
+│   │   ├── functions/*.zsh   # shell functions by topic
+│   │   └── README.md         # load order, how to add things
+│   ├── vim/vimrc             # milestone 4
+│   ├── git/                  # milestone 4: gitconfig, gitignore_global
+│   └── mise/config.toml      # milestone 5: [tools] go, python, node
+├── versions.env              # pinned Oh My Zsh commit (later: mise version)
 ├── scripts/
 │   ├── release.sh            # creates the release commit with the version written in, tags, resets main
 │   ├── doctor.sh             # checks installed versions against the pins
 │   └── uninstall.sh
 ├── tests/
-│   ├── Dockerfile.ubuntu
-│   └── Dockerfile.debian
+│   ├── run.sh                # builds a throwaway remote with 2 releases, runs container.sh per image
+│   └── container.sh          # scenarios run inside each container
 ├── .github/workflows/ci.yml  # shellcheck + ubuntu, debian container, macos runners; tag-pin test
 ├── docs/
 └── README.md
@@ -115,24 +126,31 @@ workspace-bootstrap/
 |---|---|---|
 | git, curl, zsh, vim, jq | brew | apt |
 | mise | `brew install mise` | mise's official apt repo (`mise.jdx.dev/deb`) |
-| Go, Python, Node | `mise install` from `~/.config/mise/config.toml`, which is linked to `config/mise.toml` | same |
+| Go, Python, Node | `mise install` from `~/.config/mise/config.toml`, which is linked to `config/mise/config.toml` | same |
 | Docker | `brew install colima docker docker-compose docker-buildx`, link the Compose/Buildx plugins into Docker's CLI plugin folder, run `colima start` (skipped with `--unattended`) | Docker's official apt repo: `docker-ce`, `docker-ce-cli`, `containerd.io`, compose/buildx plugins. Adds the user to the `docker` group |
 
 Python comes from mise's precompiled builds, so nothing needs compiling. `pipx` and `uv` can
 also be listed as tools in `mise.toml`.
 
-## 6. Configuration and dotfiles
+## 6. Configuration
 
-- Dotfiles are symlinked from the clone into `$HOME`. Existing files are backed up to `~/.workspace-bootstrap-backup/<timestamp>/`.
-- Per-machine overrides go in `~/.zshrc.local`, `~/.vimrc.local` and `~/.gitconfig.local`. They are sourced or included, never overwritten.
-- Oh My Zsh is installed with `RUNZSH=no CHSH=no KEEP_ZSHRC=yes --unattended`. We run `chsh` ourselves afterwards.
-- Oh My Zsh plugins: `git`, `docker`, `golang`, `python`, `node`, `mise`, plus `zsh-autosuggestions` and `zsh-syntax-highlighting` (both pinned).
-- zshrc contents, in order:
-  1. Homebrew shellenv (macOS only)
-  2. `eval "$(mise activate zsh)"`
-  3. `~/.local/bin` added to PATH
-  4. `~/.zshrc.local` sourced
-- vimrc (minimal): syntax on, line numbers, sensible indentation, search settings, no swap files in the working directory, and `~/.vimrc.local` sourced if present.
+- All shared configuration lives in `config/<tool>/`. The entry files are symlinked into `$HOME`.
+  Anything already there is moved to `~/.workspace-bootstrap-backup/<timestamp>/` first.
+- Personal files live only on the machine and are never touched:
+  - zsh: `~/.zshrc.pre.local`, `~/.zshrc.d/*.zsh`, `~/.zshrc.local`
+  - vim and git: `~/.vimrc.local`, `~/.gitconfig.local`
+- **zsh** (see `config/zsh/README.md`):
+  - Load order: `env.zsh` → `~/.zshrc.pre.local` → `plugins/*.zsh` → `omz.zsh` → `options.zsh`
+    → `functions/*.zsh` → `aliases/*.zsh` → `~/.zshrc.d/*.zsh` → `~/.zshrc.local`.
+  - Oh My Zsh and the external plugins are cloned by us at pinned commits; its installer script is
+    not used, and its auto-updater is disabled.
+  - A checkout found on a branch was installed some other way. It is reported and left alone.
+  - Plugins: git, colored-man-pages, docker, docker-compose, golang, python, node, npm, mise,
+    `$WSB_EXTRA_PLUGINS`, zsh-autosuggestions, zsh-syntax-highlighting (last). Plugins that
+    aren't installed are dropped, so startup never fails because of one.
+  - The login shell is changed with `chsh` through sudo. `WSB_NO_CHSH=1` skips it.
+- vimrc (minimal): syntax on, line numbers, sensible indentation, search settings, no swap files in
+  the working directory, and `~/.vimrc.local` sourced if present.
 
 ## 7. Cross-cutting rules
 
@@ -140,7 +158,7 @@ also be listed as tools in `mise.toml`.
   says *changed* or *already set up*.
 - `--unattended` never prompts, for CI and containers. Optional modules are then skipped unless
   `--with` names them.
-- Ask for sudo once at the start and keep it alive during the run.
+- sudo is requested **lazily**, the first time a step needs root, and kept alive for the rest of the run. A re-run with nothing to do never asks for a password.
 - `set -euo pipefail`, clear `==>` / `✔` / `✖` log lines, and a summary at the end.
 - Detect arm64/x86_64, which sets the Homebrew prefix and Docker's apt arch.
 - All scripts must pass shellcheck.
@@ -149,7 +167,7 @@ also be listed as tools in `mise.toml`.
 
 1. ✅ **Skeleton + versioning**: `install.sh` (OS check that stops on unsupported systems, git/curl, version resolution, clone, `.version`), `bootstrap.sh` with empty modules, `lib/common.sh`, `scripts/release.sh`. Test in Ubuntu and Debian containers, and on a Fedora container to confirm it stops with the unsupported message.
 2. ✅ **Package layer**: `pkg.sh`, Homebrew, `packages/base.{brew,apt}`, base tools, idempotency and optional-module framework.
-3. **Shell**: zsh, pinned Oh My Zsh and plugins, zshrc, chsh.
+3. ✅ **Shell**: zsh, pinned Oh My Zsh and plugins, `config/zsh/` tree (plugins, aliases, functions, options), personal override files, chsh, lazy sudo.
 4. **Vim and git**: minimal vimrc, gitconfig, global gitignore.
 5. **mise and languages**: install mise, `config/mise.toml`, `mise install`, version checks.
 6. **Docker**: colima on macOS, docker-ce on Debian/Ubuntu.

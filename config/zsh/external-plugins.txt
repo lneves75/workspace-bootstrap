@@ -1,0 +1,7 @@
+# Oh My Zsh plugins that do not ship with Oh My Zsh. Cloned into
+# $ZSH_CUSTOM/plugins/<name> at the pinned commit.
+# To enable a plugin, add its name to the plugins list in omz.zsh too.
+#
+# name                     repository                                                commit                                    # version
+zsh-autosuggestions        https://github.com/zsh-users/zsh-autosuggestions.git      e52ee8ca55bcc56a17c828767a3f98f22a68d4eb  # v0.7.1
+zsh-syntax-highlighting    https://github.com/zsh-users/zsh-syntax-highlighting.git  db085e4661f6aafd24e5acb5b2e17e4dd5dddf3e  # 0.8.0

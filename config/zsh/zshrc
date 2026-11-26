@@ -1,0 +1,32 @@
+# ~/.zshrc, managed by workspace-bootstrap.
+#
+# This file is a symlink into the workspace-bootstrap checkout, so do not edit
+# it in place. Personal settings go in:
+#   ~/.zshrc.pre.local   sourced before Oh My Zsh (e.g. WSB_EXTRA_PLUGINS=(kubectl))
+#   ~/.zshrc.d/*.zsh     your own snippets, sourced after the shared config
+#   ~/.zshrc.local       sourced last, so it can override anything
+#
+# Load order (see config/zsh/README.md):
+#   env.zsh → ~/.zshrc.pre.local → plugins/*.zsh → omz.zsh → options.zsh
+#   → functions/*.zsh → aliases/*.zsh → ~/.zshrc.d/*.zsh → ~/.zshrc.local
+
+# This file's real directory, following the symlink.
+WSB_ZSH_DIR=${${(%):-%x}:A:h}
+WSB_ROOT=${WSB_ZSH_DIR:h:h}
+
+_wsb_source_dir() {
+  local f
+  for f in "$1"/*.zsh(N); do source "$f"; done
+}
+
+source "$WSB_ZSH_DIR/env.zsh"
+[[ -r ~/.zshrc.pre.local ]] && source ~/.zshrc.pre.local
+_wsb_source_dir "$WSB_ZSH_DIR/plugins"
+source "$WSB_ZSH_DIR/omz.zsh"
+source "$WSB_ZSH_DIR/options.zsh"
+_wsb_source_dir "$WSB_ZSH_DIR/functions"
+_wsb_source_dir "$WSB_ZSH_DIR/aliases"
+_wsb_source_dir ~/.zshrc.d
+[[ -r ~/.zshrc.local ]] && source ~/.zshrc.local
+
+unfunction _wsb_source_dir

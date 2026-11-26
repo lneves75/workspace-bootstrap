@@ -146,18 +146,32 @@ printf '%sworkspace-bootstrap %s%s on %s/%s%s\n' \
   "$C_BLUE" "$WSB_REF" "$C_OFF" "$WSB_OS" "$WSB_ARCH" \
   "$([[ "$WSB_DRY_RUN" == 1 ]] && printf ' (dry run)')"
 
-wsb_sudo_keepalive
+# Per-run scratch space (change log, sudo keep-alive pid). sudo itself is
+# requested lazily by as_root, only when a step really needs it.
+WSB_RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/wsb-run.XXXXXX")
+WSB_MAIN_PID=$$
+export WSB_RUN_DIR WSB_MAIN_PID
+cleanup() {
+  if [[ -f "$WSB_RUN_DIR/sudo-keepalive.pid" ]]; then
+    kill "$(cat "$WSB_RUN_DIR/sudo-keepalive.pid")" 2>/dev/null || true
+  fi
+  rm -rf "$WSB_RUN_DIR"
+}
+trap cleanup EXIT
 
 SUMMARY=()
 FAILED=0
-CHANGES_FILE=$(mktemp "${TMPDIR:-/tmp}/wsb-changes.XXXXXX")
-trap 'rm -f "$CHANGES_FILE"; [[ -n "${WSB_SUDO_PID:-}" ]] && kill "$WSB_SUDO_PID" 2>/dev/null; true' EXIT
+# Files replaced by symlinks during this run are moved here.
+WSB_BACKUP_DIR="${WSB_BACKUP_DIR:-$HOME/.workspace-bootstrap-backup/$(date +%Y%m%d-%H%M%S)}"
+export WSB_BACKUP_DIR
+CHANGES_FILE="$WSB_RUN_DIR/changes"
 
 # Module subshell exit codes (besides 0 = success and WSB_RC_TODO):
 RC_ALREADY=10        # module_check says everything is in place
 RC_NOT_SELECTED=12   # optional module declined / not selected
 RC_WOULD_ASK=13      # optional module, dry run: would prompt
 
+# shellcheck disable=SC2031  # $name is a local argument, not the subshell's
 run_module() {
   local file=$1 name=$2 selected=$3 rc changes
   log_step "$name"
@@ -172,6 +186,8 @@ run_module() {
     module_install() { return "$WSB_RC_TODO"; }
     # shellcheck source=lib/pkg.sh
     source "$WSB_ROOT/lib/pkg.sh"
+    # shellcheck source=lib/files.sh
+    source "$WSB_ROOT/lib/files.sh"
     wsb_load_brew_env
     # shellcheck disable=SC1090
     source "$file"
@@ -240,6 +256,10 @@ log_step "Summary"
 for line in ${SUMMARY[@]+"${SUMMARY[@]}"}; do
   log_info "$line"
 done
+
+if [[ -d "$WSB_BACKUP_DIR" ]]; then
+  log_warn "Replaced files were backed up to $WSB_BACKUP_DIR"
+fi
 
 if [[ $FAILED != 0 ]]; then
   die "Bootstrap stopped because a module failed. Fix the problem and re-run: $WSB_ROOT/bootstrap.sh"

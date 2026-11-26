@@ -73,28 +73,33 @@ as_root() {
   if is_root; then
     "$@"
   else
+    wsb_sudo_ensure || return 1
     sudo "$@"
   fi
 }
 
-# Ask for the sudo password once and keep the timestamp fresh until the
-# parent process exits. No-op when root or in dry-run mode.
-wsb_sudo_keepalive() {
+# Make sure sudo works, asking for the password only the first time it is
+# really needed (an idempotent re-run with nothing to do never asks). Then
+# keep the sudo timestamp fresh until bootstrap.sh ($WSB_MAIN_PID) exits.
+wsb_sudo_ensure() {
   is_root && return 0
-  [[ "${WSB_DRY_RUN:-0}" == 1 ]] && return 0
-  command_exists sudo || die "sudo is required (or run as root)."
+  command_exists sudo || { log_err "sudo is required (or run as root)."; return 1; }
 
-  if [[ "${WSB_UNATTENDED:-0}" == 1 ]]; then
-    sudo -n true 2>/dev/null || die "Unattended mode needs passwordless sudo (or run as root)."
-  else
-    log_info "Some steps need administrator rights; you may be asked for your password."
-    sudo -v || die "Could not obtain sudo rights."
+  if ! sudo -n true 2>/dev/null; then
+    if [[ "${WSB_UNATTENDED:-0}" == 1 ]]; then
+      log_err "Unattended mode needs passwordless sudo (or run as root)."
+      return 1
+    fi
+    log_info "administrator rights needed; you may be asked for your password"
+    sudo -v || { log_err "could not obtain sudo rights"; return 1; }
   fi
 
-  local parent=$$
-  ( while kill -0 "$parent" 2>/dev/null; do sudo -n true 2>/dev/null; sleep 50; done ) &
-  WSB_SUDO_PID=$!
-  trap 'kill "$WSB_SUDO_PID" 2>/dev/null || true' EXIT
+  local pidfile="${WSB_RUN_DIR:-}/sudo-keepalive.pid"
+  if [[ -n "${WSB_RUN_DIR:-}" && ! -f "$pidfile" ]]; then
+    local main=${WSB_MAIN_PID:-$$}
+    ( while kill -0 "$main" 2>/dev/null; do sudo -n true 2>/dev/null; sleep 50; done ) >/dev/null 2>&1 &
+    printf '%s' "$!" > "$pidfile"
+  fi
 }
 
 # --- dry run ----------------------------------------------------------------
