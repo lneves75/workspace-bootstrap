@@ -150,6 +150,21 @@ ask_yes_no() {
   [[ "$default" == y ]]
 }
 
+# ask_value QUESTION   Print the answer (may be empty). Prompts on the
+# terminal like ask_yes_no; empty without asking in --unattended mode or when
+# there is no terminal. Use as: value=$(ask_value "Your name:")
+ask_value() {
+  local question=$1 ans=""
+  if [[ "${WSB_UNATTENDED:-0}" == 1 ]]; then
+    ans=""
+  elif [[ -t 0 ]]; then
+    read -r -p "    $question " ans || ans=""
+  elif (exec </dev/tty) 2>/dev/null; then
+    read -r -p "    $question " ans </dev/tty || ans=""
+  fi
+  printf '%s' "$ans"
+}
+
 # --- environment ------------------------------------------------------------
 
 # Put Homebrew on PATH for this process (it may have been installed by an

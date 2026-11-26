@@ -40,7 +40,7 @@ _pkg_cache_load() {
 # pkg_installed NAME   (NAME may be "cask:foo" on macOS)
 pkg_installed() {
   _pkg_cache_load
-  printf '%s\n' "$_PKG_CACHE" | grep -qxF -- "$1"
+  grep -qxF -- "$1" <<< "$_PKG_CACHE"
 }
 
 # --- apt index --------------------------------------------------------------

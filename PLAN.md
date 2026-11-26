@@ -104,8 +104,8 @@ workspace-bootstrap/
 │   │   ├── aliases/*.zsh     # aliases by topic
 │   │   ├── functions/*.zsh   # shell functions by topic
 │   │   └── README.md         # load order, how to add things
-│   ├── vim/vimrc             # milestone 4
-│   ├── git/                  # milestone 4: gitconfig, gitignore_global
+│   ├── vim/vimrc             # → ~/.vimrc
+│   ├── git/                  # gitconfig (included by ~/.gitconfig), ignore (→ ~/.config/git/ignore)
 │   └── mise/config.toml      # milestone 5: [tools] go, python, node
 ├── versions.env              # pinned Oh My Zsh commit (later: mise version)
 ├── scripts/
@@ -138,7 +138,10 @@ also be listed as tools in `mise.toml`.
   Anything already there is moved to `~/.workspace-bootstrap-backup/<timestamp>/` first.
 - Personal files live only on the machine and are never touched:
   - zsh: `~/.zshrc.pre.local`, `~/.zshrc.d/*.zsh`, `~/.zshrc.local`
-  - vim and git: `~/.vimrc.local`, `~/.gitconfig.local`
+  - vim: `~/.vimrc.local`
+  - git: `~/.gitconfig` itself. It is **not** symlinked, because `git config --global` writes to
+    it. One `[include]` of `config/git/gitconfig` is added at its top, so personal values
+    override the shared ones.
 - **zsh** (see `config/zsh/README.md`):
   - Load order: `env.zsh` → `~/.zshrc.pre.local` → `plugins/*.zsh` → `omz.zsh` → `options.zsh`
     → `functions/*.zsh` → `aliases/*.zsh` → `~/.zshrc.d/*.zsh` → `~/.zshrc.local`.
@@ -149,8 +152,14 @@ also be listed as tools in `mise.toml`.
     `$WSB_EXTRA_PLUGINS`, zsh-autosuggestions, zsh-syntax-highlighting (last). Plugins that
     aren't installed are dropped, so startup never fails because of one.
   - The login shell is changed with `chsh` through sudo. `WSB_NO_CHSH=1` skips it.
-- vimrc (minimal): syntax on, line numbers, sensible indentation, search settings, no swap files in
-  the working directory, and `~/.vimrc.local` sourced if present.
+- **vim**: the system vim on macOS, apt on Debian/Ubuntu. `~/.vimrc` → `config/vim/vimrc`: built-in
+  features only, with line numbers, search settings, 2-space indent plus Go/Python/Make
+  conventions, swap/backup/undo files in `~/.vim/`, and `~/.vimrc.local` sourced last.
+- **git**: shared defaults (aliases; `pull.ff=only`, `push.autoSetupRemote`, `fetch.prune`,
+  `rebase.autoStash`, `diff3`, `rerere`). `~/.config/git/ignore` → `config/git/ignore`, unless
+  `core.excludesFile` is already set. `user.name` and `user.email` are asked for when missing.
+  With `--unattended` they come from `WSB_GIT_NAME` / `WSB_GIT_EMAIL`, or are left unset with a
+  warning.
 
 ## 7. Cross-cutting rules
 
@@ -168,7 +177,7 @@ also be listed as tools in `mise.toml`.
 1. ✅ **Skeleton + versioning**: `install.sh` (OS check that stops on unsupported systems, git/curl, version resolution, clone, `.version`), `bootstrap.sh` with empty modules, `lib/common.sh`, `scripts/release.sh`. Test in Ubuntu and Debian containers, and on a Fedora container to confirm it stops with the unsupported message.
 2. ✅ **Package layer**: `pkg.sh`, Homebrew, `packages/base.{brew,apt}`, base tools, idempotency and optional-module framework.
 3. ✅ **Shell**: zsh, pinned Oh My Zsh and plugins, `config/zsh/` tree (plugins, aliases, functions, options), personal override files, chsh, lazy sudo.
-4. **Vim and git**: minimal vimrc, gitconfig, global gitignore.
+4. ✅ **Vim and git**: minimal vimrc, shared gitconfig through an include, global gitignore, identity prompt (`WSB_GIT_NAME`/`WSB_GIT_EMAIL` for unattended runs).
 5. **mise and languages**: install mise, `config/mise.toml`, `mise install`, version checks.
 6. **Docker**: colima on macOS, docker-ce on Debian/Ubuntu.
 7. **Quality**: `doctor.sh`, `uninstall.sh`, CI matrix, plus a CI job that tags a test release and confirms the tag URL installs exactly that version.

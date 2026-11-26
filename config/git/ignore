@@ -1,0 +1,25 @@
+# Global gitignore, managed by workspace-bootstrap.
+# Linked to ~/.config/git/ignore, which git uses when core.excludesFile is unset.
+# Only machine and editor clutter belongs here; project files go in each
+# project's own .gitignore.
+
+# macOS
+.DS_Store
+.AppleDouble
+._*
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Editors
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Personal tool overrides
+mise.local.toml
+.mise.local.toml
+.envrc.local

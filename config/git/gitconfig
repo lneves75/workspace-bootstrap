@@ -1,0 +1,39 @@
+# Shared git defaults, managed by workspace-bootstrap.
+#
+# Your ~/.gitconfig includes this file at the top, so anything you set there
+# (or with `git config --global`) overrides these values. Your name and email
+# live in ~/.gitconfig, never here.
+
+[init]
+	defaultBranch = main
+[core]
+	editor = vim
+	autocrlf = input
+[color]
+	ui = auto
+[pull]
+	ff = only               # never create surprise merge commits on pull
+[push]
+	default = simple
+	autoSetupRemote = true  # first push of a new branch sets its upstream
+[fetch]
+	prune = true
+[rebase]
+	autoStash = true
+	autoSquash = true
+[merge]
+	conflictStyle = diff3
+[diff]
+	colorMoved = default
+[rerere]
+	enabled = true
+[alias]
+	st = status -sb
+	co = checkout
+	sw = switch
+	br = branch
+	ci = commit
+	amend = commit --amend --no-edit
+	unstage = restore --staged
+	last = log -1 --stat
+	lg = log --graph --pretty=format:'%C(yellow)%h%Creset %C(blue)%ad%Creset %s%C(auto)%d%Creset %C(dim)%an%Creset' --date=short

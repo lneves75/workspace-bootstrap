@@ -1,14 +1,16 @@
 # shellcheck shell=bash
 #
 # Module: vim
-# vim and a minimal vimrc.
-#
-# Contract (see bootstrap.sh):
-#   module_check    return 0 if everything is already set up (nothing to do)
-#   module_install  install/configure; return 0 on success,
-#                   $WSB_RC_TODO if not implemented, anything else on failure
-#
-# TODO(milestone 4)
+#   1. vim (macOS ships one; apt on Debian/Ubuntu)
+#   2. ~/.vimrc → config/vim/vimrc (any existing file is backed up)
 
-module_check()   { return 1; }
-module_install() { return "$WSB_RC_TODO"; }
+module_install() {
+  if is_debian; then
+    pkg_ensure vim
+  elif command_exists vim; then
+    log_ok "vim already installed ($(vim --version 2>/dev/null | sed -n 1p))"
+  else
+    pkg_ensure vim
+  fi
+  link_file "$WSB_ROOT/config/vim/vimrc" "$HOME/.vimrc"
+}

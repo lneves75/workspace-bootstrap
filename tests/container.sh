@@ -47,6 +47,7 @@ printf '[safe]\n\tdirectory = *\n' > "$HOME/.gitconfig"
 command -v git >/dev/null && fail "image already has git (test assumes a bare image)"
 printf '# my old zshrc\n' > "$HOME/.zshrc"     # must end up in the backup
 install_from /t/install-main.sh --unattended
+cp /tmp/out.log /tmp/first.log
 expect_ref v0.0.2 "main URL installs latest release"
 command -v git >/dev/null && command -v curl >/dev/null && pass "git and curl provisioned" || fail "git/curl missing"
 grep -q "All done" /tmp/out.log && pass "bootstrap.sh ran to completion" || { fail "bootstrap.sh did not finish"; tail -n 20 /tmp/out.log; }
@@ -104,8 +105,43 @@ HOME=$H2 WSB_NO_CHSH=1 bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --only zs
 [ "$(git -C "$H2/.oh-my-zsh" rev-parse HEAD)" = "$mine" ] && grep -q "not managed by workspace-bootstrap, left as is" /tmp/out.log \
   && pass "user's own Oh My Zsh checkout left untouched" || { fail "user's Oh My Zsh was modified"; cat /tmp/out.log; }
 
+# 1c. vim module
+command -v vim >/dev/null && pass "vim installed" || fail "vim missing"
+[ "$(readlink "$HOME/.vimrc")" = "$BOOTSTRAP_DIR/config/vim/vimrc" ] && pass "~/.vimrc linked into the repo" || fail "~/.vimrc not linked"
+vim -N -u "$HOME/.vimrc" -i NONE -es -c 'redir! > /tmp/vim.out' -c 'set number? shiftwidth?' -c 'echo "ERR=" . v:errmsg' -c 'redir END' -c 'qa!' </dev/null
+grep -q 'shiftwidth=2' /tmp/vim.out && grep -q '^ERR=$' /tmp/vim.out && pass "vimrc loads without errors" || { fail "vimrc"; cat /tmp/vim.out; }
+[ -d "$HOME/.vim/undo" ] && pass "vim undo/swap dirs created outside projects" || fail "~/.vim/undo missing"
+
+# 1d. git module (unattended, no identity given)
+head -n 3 "$HOME/.gitconfig" | grep -qF "path = $BOOTSTRAP_DIR/config/git/gitconfig" \
+  && pass "~/.gitconfig includes shared defaults at the top" || { fail "include missing"; cat "$HOME/.gitconfig"; }
+[ ! -L "$HOME/.gitconfig" ] && pass "~/.gitconfig stays a personal file (not a symlink)" || fail "~/.gitconfig is a symlink"
+[ "$(git config --global --get safe.directory)" = '*' ] && pass "existing ~/.gitconfig content preserved" || fail "existing content lost"
+[ "$(git config --get init.defaultBranch)" = main ] && pass "shared git defaults active" || fail "shared defaults not active"
+[ "$(readlink "$HOME/.config/git/ignore")" = "$BOOTSTRAP_DIR/config/git/ignore" ] && pass "global gitignore linked" || fail "global gitignore not linked"
+rm -rf /tmp/repo && git init -q /tmp/repo && touch /tmp/repo/.DS_Store
+git -C /tmp/repo check-ignore -q .DS_Store && pass "global gitignore applies" || fail ".DS_Store not ignored"
+grep -q "user.name not set" /tmp/first.log \
+  && pass "unattended: missing identity reported, not prompted" || fail "identity warning missing"
+
+# Personal settings override the shared defaults.
+git config --global init.defaultBranch trunk
+[ "$(git config --get init.defaultBranch)" = trunk ] && pass "personal ~/.gitconfig overrides shared defaults" || fail "override"
+git config --global --unset init.defaultBranch
+
+# Identity: interactive prompt (through a pseudo-terminal) ...
+{ sleep 1; printf 'Test User\n'; sleep 1; printf 'test@example.com\n'; sleep 2; } \
+  | script -qec "bash $BOOTSTRAP_DIR/bootstrap.sh --only git" /dev/null > /tmp/out.log 2>&1
+[ "$(git config --global user.name)" = "Test User" ] && [ "$(git config --global user.email)" = test@example.com ] \
+  && pass "git identity asked and saved" || { fail "git identity prompt"; cat /tmp/out.log; }
+# ... or from WSB_GIT_NAME / WSB_GIT_EMAIL when unattended
+H3=/tmp/home3; mkdir -p "$H3"; cp "$HOME/.gitconfig" "$H3/.gitconfig"
+HOME=$H3 git config --global --unset user.name; HOME=$H3 git config --global --unset user.email
+HOME=$H3 WSB_GIT_NAME="CI Bot" WSB_GIT_EMAIL=ci@example.com bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --only git > /tmp/out.log 2>&1
+[ "$(HOME=$H3 git config --global user.name)" = "CI Bot" ] && pass "identity from WSB_GIT_NAME/WSB_GIT_EMAIL" || { fail "identity from env"; cat /tmp/out.log; }
+[ "$(grep -c 'path = ' "$H3/.gitconfig")" = 1 ] && pass "include not duplicated" || { fail "include duplicated"; cat "$H3/.gitconfig"; }
+
 # 2. re-run is idempotent: succeeds and changes nothing
-cp /tmp/out.log /tmp/first.log
 install_from /t/install-main.sh --unattended && pass "re-run succeeds" || fail "re-run failed"
 if grep -q ": changed (" /tmp/out.log; then
   fail "re-run changed something:"; grep ": changed (" /tmp/out.log

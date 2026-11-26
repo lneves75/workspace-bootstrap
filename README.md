@@ -4,8 +4,8 @@ One command to set up a development workstation on **macOS**, **Debian** or **Ub
 zsh + Oh My Zsh, vim, git, curl, Docker, and Go / Python / Node managed by
 [mise](https://mise.jdx.dev).
 
-> **Status:** milestone 3 of 8. The installer, versioning, module runner, Homebrew/apt, base
-> tools and zsh + Oh My Zsh work. The git, vim, mise and Docker modules are still stubs.
+> **Status:** milestone 4 of 8. Everything except the optional mise (languages) and Docker
+> modules works; those two are still stubs.
 > See [PLAN.md](PLAN.md).
 
 ## Install
@@ -61,9 +61,9 @@ With `--unattended` they are skipped unless you name them with `--with`:
 |---|---|---|
 | package-manager | Homebrew | apt |
 | base-tools | `packages/base.brew` | `packages/base.apt` |
-| git | gitconfig, global gitignore | same |
+| git | `~/.gitconfig` includes `config/git/gitconfig`, global gitignore, name/email | same |
 | zsh | zsh, Oh My Zsh + plugins (pinned), `~/.zshrc` → `config/zsh/zshrc`, login shell | same |
-| vim | vim + minimal vimrc | same |
+| vim | system vim + `~/.vimrc` → `config/vim/vimrc` | vim (apt) + same |
 | mise *(optional)* | mise → Go, Python, Node (pinned in `config/mise/config.toml`) | same |
 | docker *(optional)* | colima + docker CLI | docker-ce (official apt repo) |
 
@@ -85,10 +85,24 @@ config/zsh/
 └── functions/*.zsh        shell functions, one file per topic
 ```
 
-Personal, per-machine settings never go in the repo, and workspace-bootstrap never touches them:
-`~/.zshrc.pre.local` (before Oh My Zsh, e.g. `WSB_EXTRA_PLUGINS=(kubectl)`), `~/.zshrc.d/*.zsh`
-and `~/.zshrc.local` (last). See [config/zsh/README.md](config/zsh/README.md) for the full load
-order and how to add aliases, functions and plugins.
+```
+config/vim/vimrc           → ~/.vimrc (minimal, no plugins)
+config/git/gitconfig       included at the top of ~/.gitconfig (aliases, pull/push defaults)
+config/git/ignore          → ~/.config/git/ignore (global gitignore)
+```
+
+Personal, per-machine settings never go in the repo, and workspace-bootstrap never edits them:
+
+| Tool | Personal files |
+|---|---|
+| zsh | `~/.zshrc.pre.local` (before Oh My Zsh, e.g. `WSB_EXTRA_PLUGINS=(kubectl)`), `~/.zshrc.d/*.zsh`, `~/.zshrc.local` (last) |
+| vim | `~/.vimrc.local` |
+| git | `~/.gitconfig` itself. It is not a symlink: it holds your name and email, and its settings override the shared ones |
+
+The folder READMEs ([zsh](config/zsh/README.md), [vim](config/vim/README.md),
+[git](config/git/README.md)) explain the load order and how to add things. The only change made
+to an existing `~/.gitconfig` is a single `[include]` added at the top. A copy of the original
+goes to the backup folder first.
 
 ## Versions
 
@@ -122,7 +136,8 @@ to run if the checked-out code no longer matches it.
 ```
 
 Environment: `WSB_REF`, `WSB_REPO` (clone URL), `BOOTSTRAP_DIR` (default `~/.workspace-bootstrap`),
-`WSB_UNATTENDED=1`, `WSB_WITH=mise,docker`, `WSB_NO_CHSH=1` (don't change the login shell).
+`WSB_UNATTENDED=1`, `WSB_WITH=mise,docker`, `WSB_NO_CHSH=1` (don't change the login shell),
+`WSB_GIT_NAME` / `WSB_GIT_EMAIL` (git identity without prompting).
 
 sudo is only requested when a step needs root, so a re-run with nothing to do never asks for a
 password.
@@ -158,7 +173,7 @@ Helpers:
 - files: `link_file SRC DEST` (symlink, backing up what was there),
   `git_pinned_checkout NAME DIR URL COMMIT` (leaves checkouts it didn't make alone)
 - platform and privileges: `is_macos`, `is_debian`, `as_root`
-- prompts: `ask_yes_no "Question?" n`
+- prompts: `ask_yes_no "Question?" n`, `value=$(ask_value "Question:")`
 - logging: `log_info`, `log_ok`, `log_warn`, `log_err`
 
 Package list files hold one name per line and allow `#` comments. Prefix Homebrew casks with

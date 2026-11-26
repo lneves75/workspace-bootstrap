@@ -161,8 +161,13 @@ trap cleanup EXIT
 
 SUMMARY=()
 FAILED=0
-# Files replaced by symlinks during this run are moved here.
-WSB_BACKUP_DIR="${WSB_BACKUP_DIR:-$HOME/.workspace-bootstrap-backup/$(date +%Y%m%d-%H%M%S)}"
+# Files replaced during this run are moved here. The folder is only created
+# when something is actually backed up, and is unique per run.
+if [[ -z "${WSB_BACKUP_DIR:-}" ]]; then
+  WSB_BACKUP_DIR="$HOME/.workspace-bootstrap-backup/$(date +%Y%m%d-%H%M%S)"
+  n=1; base=$WSB_BACKUP_DIR
+  while [[ -e "$WSB_BACKUP_DIR" ]]; do n=$((n + 1)); WSB_BACKUP_DIR="$base-$n"; done
+fi
 export WSB_BACKUP_DIR
 CHANGES_FILE="$WSB_RUN_DIR/changes"
 
