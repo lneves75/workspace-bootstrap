@@ -1,0 +1,9 @@
+I want to bootstrap a linux or macos working environment with some basic tools, configuration and scripts. Requirements:
+- Shell: zsh with ohmyzsh
+- Editor: vim
+- Programming languages: golang, python, node
+- Basic tools: git, curl, docker
+- Package management: homebrew whenever possible, apt if debian/ubuntu
+- Any script, documentation, initial commands for copy/paste should be hosted in a github repo https://github.com/lneves75/workspace-bootstrap
+- once git is provisioned, one can use a similar installation as ohmysh in https://github.com/ohmyzsh/ohmyzsh#basic-installation
+
