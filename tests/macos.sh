@@ -25,10 +25,12 @@ pass() { printf '  \033[32m✔\033[0m %s\n' "$*"; }
 fail() { printf '  \033[31m✖\033[0m %s\n' "$*"; FAILS=$((FAILS + 1)); }
 section() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
+TOOLS=kubectl,terraform,opentofu,terragrunt,flux,gh,aws,azure,gcloud
+
 section "first run: everything, unattended"
 printf '# pre-existing zshrc\n' >> "$HOME/.zshrc"
 if WSB_GIT_NAME="CI" WSB_GIT_EMAIL=ci@example.com \
-   sh -c "$(cat "$WORK/install-main.sh")" "" --unattended --with mise,docker > "$WORK/first.log" 2>&1; then
+   sh -c "$(cat "$WORK/install-main.sh")" "" --unattended --with "mise,docker,$TOOLS" > "$WORK/first.log" 2>&1; then
   pass "install succeeded"
 else
   fail "install failed"; tail -n 60 "$WORK/first.log"
@@ -55,8 +57,19 @@ else
   pass "pre-existing Docker detected; colima not installed"
 fi
 
+section "optional CLI tools (Homebrew, or already on the runner)"
+for c in kubectl terraform tofu terragrunt flux gh aws az gcloud yq jq; do
+  command -v "$c" >/dev/null && pass "$c: $(command -v "$c")" || fail "$c missing"
+done
+out=$(zsh -i -c 'print -r -- "THEME=$ZSH_THEME"; alias k tf; for c in kubectl terraform gh yq; do (( $+_comps[$c] )) && print "COMP $c"; done' 2>&1)
+grep -qx 'THEME=agnoster' <<< "$out" && pass "theme agnoster" || { fail "theme"; echo "$out"; }
+grep -qx 'k=kubectl' <<< "$out" && grep -qx 'tf=terraform' <<< "$out" && pass "aliases k, tf" || { fail "aliases"; echo "$out"; }
+[ "$(grep -c '^COMP ' <<< "$out")" = 4 ] && pass "completions (kubectl, terraform, gh, yq)" || { fail "completions"; echo "$out"; }
+vimout=$(vim -N -u "$HOME/.vimrc" -i NONE -es -c 'call writefile([get(g:, "colors_name", "none") . exists("g:loaded_fugitive")], "/dev/stdout")' -c 'qa!' </dev/null)
+[ "$vimout" = PaperColor1 ] && pass "vim: PaperColor + plugins" || fail "vim plugins ($vimout)"
+
 section "second run changes nothing"
-bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with mise,docker > "$WORK/second.log" 2>&1 || fail "second run failed"
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended > "$WORK/second.log" 2>&1 || fail "second run failed"
 if grep -q ": changed (" "$WORK/second.log"; then fail "second run changed:"; grep ": changed (" "$WORK/second.log"; else pass "nothing changed"; fi
 
 section "doctor"

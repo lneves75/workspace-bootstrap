@@ -61,6 +61,12 @@ wsb_detect_platform() {
   export WSB_OS WSB_OS_FAMILY WSB_ARCH
 }
 
+# Debian/Ubuntu release codename (bookworm, jammy, noble, ...)
+wsb_os_codename() {
+  # shellcheck disable=SC1091
+  (. /etc/os-release && printf '%s' "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}")
+}
+
 is_macos()  { [[ "$WSB_OS_FAMILY" == macos ]]; }
 is_debian() { [[ "$WSB_OS_FAMILY" == debian ]]; }
 

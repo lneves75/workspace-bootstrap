@@ -7,6 +7,8 @@
 set -u
 
 MODE=${1:-supported}
+# The optional CLI tool modules (tested together in section 2e)
+TOOLS=kubectl,terraform,opentofu,terragrunt,flux,gh,aws,azure,gcloud
 export WSB_REPO=file:///t/remote.git
 export BOOTSTRAP_DIR=/root/.workspace-bootstrap
 FAILS=0
@@ -78,13 +80,21 @@ grep -qx '# my old zshrc' "$HOME"/.workspace-bootstrap-backup/*/.zshrc 2>/dev/nu
 [ "$(getent passwd root | cut -d: -f7 | xargs basename)" = zsh ] && pass "login shell is zsh" || fail "login shell not zsh"
 
 # An interactive zsh loads the config cleanly, with our plugins, aliases and functions.
-zsh -i -c 'print -r -- "PLUGINS=${plugins[*]}"; print -r -- "LAST=${plugins[-1]}"; alias wsb; whence -w mkcd up; print -r -- "HIST=$SAVEHIST"' \
+zsh -i -c 'print -r -- "THEME=$ZSH_THEME"; print -r -- "PLUGINS=${plugins[*]}"; print -r -- "LAST=${plugins[-1]}"; alias wsb; whence -w mkcd up; print -r -- "HIST=$SAVEHIST"' \
   > /tmp/zsh.out 2> /tmp/zsh.err
 if [ -s /tmp/zsh.err ]; then fail "zsh startup wrote to stderr:"; cat /tmp/zsh.err; else pass "zsh starts without errors"; fi
 grep -q '^PLUGINS=git .*zsh-autosuggestions zsh-syntax-highlighting$' /tmp/zsh.out && pass "plugins loaded" || { fail "plugins"; cat /tmp/zsh.out; }
+grep -q '^PLUGINS=git colored-man-pages compleat copyfile encode64 ' /tmp/zsh.out && pass "compleat, copyfile, encode64 enabled" || { fail "new plugins"; cat /tmp/zsh.out; }
+! grep -qE '^PLUGINS=.* (kubectl|terraform|aws|gcloud) ' /tmp/zsh.out && pass "no tool plugins while the tools are absent" || fail "tool plugins loaded without tools"
 grep -q '^LAST=zsh-syntax-highlighting$' /tmp/zsh.out && pass "zsh-syntax-highlighting loads last" || fail "plugin order"
 grep -q "^wsb=.*bootstrap.sh" /tmp/zsh.out && grep -q '^mkcd: function$' /tmp/zsh.out && pass "aliases and functions defined" || { fail "aliases/functions"; cat /tmp/zsh.out; }
 grep -q '^HIST=100000$' /tmp/zsh.out && pass "options.zsh applied after Oh My Zsh" || fail "options.zsh"
+locale -a 2>/dev/null | grep -qiE '^en_US\.utf-?8$' && pass "en_US.UTF-8 locale generated (for agnoster)" || fail "en_US.UTF-8 locale missing"
+grep -q '^THEME=agnoster$' /tmp/zsh.out && pass "theme defaults to agnoster" || { fail "theme"; cat /tmp/zsh.out; }
+[ "$(ZSH_THEME=robbyrussell zsh -i -c 'print -r -- $ZSH_THEME' 2>/dev/null)" = robbyrussell ] && pass "a defined ZSH_THEME is kept" || fail "ZSH_THEME override"
+[ "$(yq --version 2>/dev/null)" = "yq (https://github.com/mikefarah/yq/) version v$(sed -n 's/^YQ_VERSION=//p' "$BOOTSTRAP_DIR/versions.env")" ] \
+  && [ "$(command -v yq)" = /usr/local/bin/yq ] && pass "mikefarah yq installed at the pinned version" || { fail "yq"; yq --version; }
+command -v jq >/dev/null && pass "jq installed" || fail "jq missing"
 
 # Personal files are picked up.
 mkdir -p "$HOME/.zshrc.d"
@@ -108,8 +118,17 @@ HOME=$H2 WSB_NO_CHSH=1 bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --only zs
 # 1c. vim module
 command -v vim >/dev/null && pass "vim installed" || fail "vim missing"
 [ "$(readlink "$HOME/.vimrc")" = "$BOOTSTRAP_DIR/config/vim/vimrc" ] && pass "~/.vimrc linked into the repo" || fail "~/.vimrc not linked"
-vim -N -u "$HOME/.vimrc" -i NONE -es -c 'redir! > /tmp/vim.out' -c 'set number? shiftwidth?' -c 'echo "ERR=" . v:errmsg' -c 'redir END' -c 'qa!' </dev/null
-grep -q 'shiftwidth=2' /tmp/vim.out && grep -q '^ERR=$' /tmp/vim.out && pass "vimrc loads without errors" || { fail "vimrc"; cat /tmp/vim.out; }
+vim -N -u "$HOME/.vimrc" -i NONE -es -c 'call writefile(["ERR=" . v:errmsg, "COLORS=" . get(g:, "colors_name", "none"), "PLUGINS=" . exists("g:loaded_fugitive") . exists("g:loaded_lightline") . exists("g:loaded_EditorConfig"), "OPTS=" . &number . &expandtab . &shiftwidth . &splitbelow . &showmode], "/tmp/vim.out")' -c 'qa!' </dev/null
+grep -q '^ERR=$' /tmp/vim.out && pass "vimrc loads without errors" || { fail "vimrc errors"; cat /tmp/vim.out; }
+grep -q '^COLORS=PaperColor$' /tmp/vim.out && grep -q '^PLUGINS=111$' /tmp/vim.out \
+  && pass "PaperColor, fugitive, lightline, editorconfig loaded" || { fail "vim plugins"; cat /tmp/vim.out; }
+grep -q '^OPTS=00210$' /tmp/vim.out && pass "Neovim settings ported (nonumber, tabs, splitbelow, noshowmode)" || { fail "vim settings"; cat /tmp/vim.out; }
+vplugins_ok=1
+while read -r vname _ vcommit _; do
+  case "$vname" in ''|\#*) continue ;; esac
+  [ "$(git -C "$HOME/.vim/pack/workspace-bootstrap/start/$vname" rev-parse HEAD 2>/dev/null)" = "$vcommit" ] || { vplugins_ok=0; fail "vim plugin $vname not at $vcommit"; }
+done < "$BOOTSTRAP_DIR/config/vim/plugins.txt"
+[ $vplugins_ok = 1 ] && pass "vim plugins at pinned commits"
 [ -d "$HOME/.vim/undo" ] && pass "vim undo/swap dirs created outside projects" || fail "~/.vim/undo missing"
 
 # 1d. git module (unattended, no identity given)
@@ -158,7 +177,7 @@ if command -v script >/dev/null; then
   rm -f /tmp/in; mkfifo /tmp/in
   ( sleep 1; printf '\n'; sleep 1; printf 'y\n'; sleep 1800 ) > /tmp/in &
   feeder=$!
-  script -qec "bash $BOOTSTRAP_DIR/bootstrap.sh" /dev/null < /tmp/in > /tmp/out.log 2>&1
+  script -qec "bash $BOOTSTRAP_DIR/bootstrap.sh --skip $TOOLS" /dev/null < /tmp/in > /tmp/out.log 2>&1
   kill "$feeder" 2>/dev/null
   grep -q "Install Go, Python and Node (via mise)? \[y/N\]" /tmp/out.log && pass "prompts with default No" || { fail "no prompt"; cat /tmp/out.log; }
   grep -q "mise: optional, not installed" /tmp/out.log && pass "Enter declines (default No)" || { fail "Enter did not decline"; cat /tmp/out.log; }
@@ -218,7 +237,7 @@ grep -q "mise: already set up" /tmp/out.log && ! grep -q ": changed (" /tmp/out.
   && pass "mise re-run changes nothing" || { fail "mise re-run"; sed -n '/Summary/,$p' /tmp/out.log; }
 
 # Once installed, an interactive run no longer asks about it.
-{ sleep 1; printf '\n'; sleep 3; } | script -qec "bash $BOOTSTRAP_DIR/bootstrap.sh" /dev/null > /tmp/out.log 2>&1
+{ sleep 1; printf '\n'; sleep 3; } | script -qec "bash $BOOTSTRAP_DIR/bootstrap.sh --skip $TOOLS" /dev/null > /tmp/out.log 2>&1
 ! grep -q "Install Go, Python and Node" /tmp/out.log && grep -q "mise: already set up" /tmp/out.log \
   && pass "installed optional module is not asked again" || { fail "asked again"; sed -n '/Summary/,$p' /tmp/out.log; }
 
@@ -237,6 +256,41 @@ printf '[tools]\ngo = "1.0.0"\n' > "$MISE_DEST"; cp "$MISE_DEST" "$MISE_RECORD"
 bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended > /tmp/out.log 2>&1
 cmp -s "$MISE_SRC" "$MISE_DEST" && grep -q "updated ~/.config/mise/conf.d/workspace-bootstrap.toml" /tmp/out.log \
   && pass "outdated managed copy updated" || { fail "managed copy not updated"; sed -n '/==> mise/,/==>/p' /tmp/out.log; }
+
+# 2e. optional CLI tools: install all of them, then check commands, pins,
+# zsh plugins, completions and aliases
+. "$BOOTSTRAP_DIR/versions.env"
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with "$TOOLS" > /tmp/tools.log 2>&1 || { fail "tools install failed"; sed -n '/✖/,+5p' /tmp/tools.log | head -40; }
+tools_ok=1
+for c in kubectl terraform tofu terragrunt flux gh aws az gcloud; do
+  command -v "$c" >/dev/null || { tools_ok=0; fail "$c not installed"; }
+done
+[ $tools_ok = 1 ] && pass "all 9 optional CLI tools installed"
+terragrunt --version 2>&1 | grep -q "v$TERRAGRUNT_VERSION" && flux --version 2>&1 | grep -q "$FLUX_VERSION" \
+  && aws --version 2>&1 | grep -q "aws-cli/$AWSCLI_VERSION" && pass "terragrunt, flux, aws at the pinned, verified versions" || fail "pinned tool versions"
+kubectl version --client 2>/dev/null | grep -q "v$KUBERNETES_MINOR\." && pass "kubectl $KUBERNETES_MINOR.x from pkgs.k8s.io" || fail "kubectl version"
+for r in kubernetes hashicorp opentofu github-cli microsoft-azure-cli google-cloud-cli; do
+  [ -s "/etc/apt/keyrings/$r.gpg" ] && [ -f "/etc/apt/sources.list.d/$r.list" ] || fail "apt repository $r missing"
+done
+zsh -i -c 'print -r -- "PLUGINS=${plugins[*]}"; alias k tf; for c in kubectl terraform tofu terragrunt flux gh aws az gcloud yq; do (( $+_comps[$c] )) && print "COMP $c"; done' > /tmp/zsh.out 2>/tmp/zsh.err
+for pl in kubectl terraform opentofu terragrunt fluxcd gh aws azure gcloud; do
+  grep -qE "^PLUGINS=.* $pl( |$)" /tmp/zsh.out || fail "zsh plugin $pl not loaded"
+done
+grep -qE '^PLUGINS=.* zsh-autosuggestions zsh-syntax-highlighting$' /tmp/zsh.out && pass "tool plugins loaded, syntax highlighting still last" || { fail "plugin order"; cat /tmp/zsh.out; }
+grep -qx "k=kubectl" /tmp/zsh.out && grep -qx "tf=terraform" /tmp/zsh.out && pass "aliases k and tf" || { fail "aliases"; cat /tmp/zsh.out; }
+missing_comp=""
+for c in kubectl terraform tofu terragrunt flux gh aws az gcloud yq; do grep -qx "COMP $c" /tmp/zsh.out || missing_comp="$missing_comp $c"; done
+[ -z "$missing_comp" ] && pass "completions for all tools and yq" || { fail "no completion for:$missing_comp"; cat /tmp/zsh.err; }
+[ ! -s /tmp/zsh.err ] && pass "zsh starts cleanly with all tools" || { fail "zsh stderr:"; head -5 /tmp/zsh.err; }
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended > /tmp/out.log 2>&1
+! grep -q ": changed (" /tmp/out.log && pass "tools remembered; re-run changes nothing" || { fail "tool re-run changed:"; grep ": changed (" /tmp/out.log; }
+
+# A pinned binary we installed is upgraded when the pin changes (simulated by
+# replacing it with a fake older version).
+printf '#!/bin/sh\necho "terragrunt version v0.0.1"\n' > /usr/local/bin/terragrunt; chmod +x /usr/local/bin/terragrunt
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended > /tmp/out.log 2>&1
+terragrunt --version 2>&1 | grep -q "v$TERRAGRUNT_VERSION" && grep -q "terragrunt: changed (installed Terragrunt" /tmp/out.log \
+  && pass "outdated pinned binary upgraded" || { fail "pinned upgrade"; sed -n '/==> terragrunt/,/==>/p' /tmp/out.log; }
 
 # --forget stops tracking (nothing is uninstalled); --with brings it back.
 bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --forget mise --only git > /tmp/out.log 2>&1

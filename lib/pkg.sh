@@ -37,10 +37,16 @@ _pkg_cache_load() {
   _PKG_CACHE_LOADED=1
 }
 
-# pkg_installed NAME   (NAME may be "cask:foo" on macOS)
+# pkg_installed NAME   (NAME may be "cask:foo", or a tap formula such as
+# "hashicorp/tap/terraform", which brew lists by its short name)
 pkg_installed() {
+  local name=$1
+  case "$name" in
+    cask:*) ;;
+    */*)    name=${name##*/} ;;
+  esac
   _pkg_cache_load
-  grep -qxF -- "$1" <<< "$_PKG_CACHE"
+  grep -qxF -- "$name" <<< "$_PKG_CACHE"
 }
 
 # --- apt index --------------------------------------------------------------
@@ -144,9 +150,10 @@ pkg_ensure_list() {
   pkg_ensure "${pkgs[@]}"
 }
 
-# pkg_apt_add_repo NAME KEY_URL REPO_LINE
-# Add a third-party apt repository signed by the key at KEY_URL. In REPO_LINE,
-# @KEYRING@ is replaced by the keyring path, e.g.
+# pkg_apt_add_repo NAME "KEY_URL [KEY_URL...]" REPO_LINE
+# Add a third-party apt repository signed by the key(s) at KEY_URL (several
+# keys are combined into one keyring). In REPO_LINE, @KEYRING@ is replaced by
+# the keyring path, e.g.
 #   "deb [arch=amd64 signed-by=@KEYRING@] https://example.com/deb stable main"
 # Idempotent: nothing happens if the keyring and the same list file exist.
 pkg_apt_add_repo() {
@@ -165,19 +172,25 @@ pkg_apt_add_repo() {
   fi
 
   log_info "adding apt repository '$name'"
-  local tmp
+  local tmp url
   tmp=$(mktemp)
-  if ! curl -fsSL "$key_url" -o "$tmp.key"; then
-    rm -f "$tmp" "$tmp.key"
-    log_err "could not download signing key $key_url"
-    return 1
-  fi
-  # Keys come either ASCII-armored or binary; apt wants binary in a .gpg file.
-  if grep -q -- '-----BEGIN PGP PUBLIC KEY BLOCK-----' "$tmp.key"; then
-    gpg --batch --yes --dearmor -o "$tmp" "$tmp.key"
-  else
-    cp "$tmp.key" "$tmp"
-  fi
+  : > "$tmp"
+  for url in $key_url; do
+    if ! curl -fsSL "$url" -o "$tmp.key"; then
+      rm -f "$tmp" "$tmp.key"
+      log_err "could not download signing key $url"
+      return 1
+    fi
+    # Keys come either ASCII-armored or binary; apt wants binary in a .gpg
+    # file. Binary keyrings can simply be concatenated.
+    if grep -q -- '-----BEGIN PGP PUBLIC KEY BLOCK-----' "$tmp.key"; then
+      gpg --batch --yes --dearmor -o "$tmp.bin" "$tmp.key"
+      cat "$tmp.bin" >> "$tmp"
+      rm -f "$tmp.bin"
+    else
+      cat "$tmp.key" >> "$tmp"
+    fi
+  done
   as_root install -d -m 755 /etc/apt/keyrings
   as_root install -m 644 "$tmp" "$keyring"
   printf '%s\n' "$line" > "$tmp.list"

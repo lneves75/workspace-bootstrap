@@ -1,8 +1,9 @@
 # workspace-bootstrap
 
 One command to set up a development workstation on **macOS**, **Debian** or **Ubuntu**:
-zsh + Oh My Zsh, vim, git, curl, Docker, and Go / Python / Node managed by
-[mise](https://mise.jdx.dev).
+zsh + Oh My Zsh, vim, git, curl, jq, yq, and optionally Docker, Go / Python / Node (through
+[mise](https://mise.jdx.dev)), kubectl, Terraform, OpenTofu, Terragrunt, Flux and the GitHub,
+AWS, Azure and Google Cloud CLIs.
 
 > **Status:** milestone 7 of 8. All modules, `doctor`, `uninstall` and CI are in place. Only the
 > first release remains.
@@ -49,13 +50,19 @@ Any other OS stops with an "Unsupported OS" message before changing anything.
 installs what is missing. A second run on the same machine changes nothing and reports every
 module as "already set up". The tests check this.
 
-**Optional modules** (`mise` for Go/Python/Node, and `docker`) are asked about
-interactively with **default No**. If a module is already set up, you aren't asked.
+**Optional modules** (`mise` for Go/Python/Node, `docker`, and the CLI tools `kubectl`,
+`terraform`, `opentofu`, `terragrunt`, `flux`, `gh`, `aws`, `azure`, `gcloud`) are asked about
+interactively with **default No**. A tool that is already installed, from anywhere, is
+detected and left alone, and you aren't asked about it. If a module is already set up, you aren't asked.
 With `--unattended` they are skipped unless you name them with `--with`:
 
 ```sh
 ~/.workspace-bootstrap/bootstrap.sh --unattended --with mise,docker
+~/.workspace-bootstrap/bootstrap.sh --unattended --with kubectl,terraform,terragrunt,flux,gh,aws
 ```
+
+Each tool's Oh My Zsh plugin (completions and aliases) is enabled only when the tool is
+installed. `k` = `kubectl` and `tf` = `terraform` exist only when those tools do.
 
 Once you choose an optional module (at the prompt or with `--with`), it is **remembered**. Later
 runs, including `wsb --upgrade --unattended`, keep it up to date without asking.
@@ -65,11 +72,20 @@ Desktop, OrbStack) is detected but not remembered.
 | Module | macOS | Debian / Ubuntu |
 |---|---|---|
 | package-manager | Homebrew | apt |
-| base-tools | `packages/base.brew` | `packages/base.apt` |
+| base-tools | `packages/base.brew` (incl. jq, yq) | `packages/base.apt` (incl. jq) + yq (pinned, verified binary) |
 | git | `~/.gitconfig` includes `config/git/gitconfig`, global gitignore, name/email | same |
 | zsh | zsh, Oh My Zsh + plugins (pinned), `~/.zshrc` → `config/zsh/zshrc`, login shell | same |
-| vim | system vim + `~/.vimrc` → `config/vim/vimrc` | vim (apt) + same |
+| vim | system vim, `~/.vimrc` → `config/vim/vimrc`, pinned plugins (PaperColor, lightline, fugitive, editorconfig) | vim (apt) + same |
 | mise *(optional)* | mise (brew) → Go 1.27.4, Python 3.15.2, Node 26.13.1 | mise (its apt repo) → same |
+| kubectl *(optional)* | `kubernetes-cli` | pkgs.k8s.io (v1.37) |
+| terraform *(optional)* | `hashicorp/tap/terraform` | HashiCorp apt repo |
+| opentofu *(optional)* | `opentofu` | OpenTofu apt repo |
+| terragrunt *(optional)* | `terragrunt` | pinned, verified binary |
+| flux *(optional)* | `fluxcd/tap/flux` | pinned, verified binary |
+| gh *(optional)* | `gh` | GitHub CLI apt repo |
+| aws *(optional)* | `awscli` | AWS CLI v2 installer (pinned, verified) |
+| azure *(optional)* | `azure-cli` (cask) | Microsoft apt repo |
+| gcloud *(optional)* | `gcloud-cli` (cask) | Google Cloud apt repo |
 | docker *(optional)* | colima + docker CLI + compose/buildx (brew), colima as a login service | docker-ce + compose/buildx (Docker's apt repo), service enabled, user in `docker` group |
 
 ## Configuration
@@ -82,16 +98,18 @@ into your home directory, so `wsb --upgrade` updates them. Anything already ther
 config/zsh/
 ├── zshrc                  → ~/.zshrc (loader only)
 ├── env.zsh                PATH, Homebrew, EDITOR
-├── omz.zsh                Oh My Zsh theme and plugin list
+├── omz.zsh                theme (agnoster unless ZSH_THEME is set), plugin list
 ├── options.zsh            setopt, history
 ├── external-plugins.txt   non-bundled plugins, pinned to a commit
 ├── plugins/<plugin>.zsh   settings for each plugin
+├── completions/*.zsh      completions Oh My Zsh doesn't provide (yq), cached
 ├── aliases/*.zsh          aliases, one file per topic
 └── functions/*.zsh        shell functions, one file per topic
 ```
 
 ```
-config/vim/vimrc           → ~/.vimrc (minimal, no plugins)
+config/vim/vimrc           → ~/.vimrc (ported from the previous Neovim init.vim)
+config/vim/plugins.txt     vim plugins, pinned, installed as native packages
 config/git/gitconfig       included at the top of ~/.gitconfig (aliases, pull/push defaults)
 config/git/ignore          → ~/.config/git/ignore (global gitignore)
 config/mise/workspace-bootstrap.toml
@@ -111,6 +129,13 @@ The folder READMEs ([zsh](config/zsh/README.md), [vim](config/vim/README.md),
 [git](config/git/README.md), [mise](config/mise/README.md)) explain the load order and how to add things. The only change made
 to an existing `~/.gitconfig` is a single `[include]` added at the top. A copy of the original
 goes to the backup folder first.
+
+## Theme
+
+Oh My Zsh uses **agnoster** unless `ZSH_THEME` is already defined, for example in
+`~/.zshrc.pre.local`. agnoster draws its separators with Powerline glyphs, so your terminal
+needs a Powerline- or Nerd-Font-patched font (e.g. MesloLGS NF). Set `DEFAULT_USER=$USER` in
+`~/.zshrc.pre.local` to hide `user@host` on your own machine.
 
 ## Docker
 

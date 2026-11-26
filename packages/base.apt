@@ -7,6 +7,8 @@ gnupg
 unzip
 zip
 jq
+# yq: the mikefarah/yq binary is installed by modules/10-base-tools.sh
+# (Debian's "yq" package is a different, Python-based tool)
 less
 file
 openssh-client

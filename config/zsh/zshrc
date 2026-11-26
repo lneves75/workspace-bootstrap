@@ -7,8 +7,9 @@
 #   ~/.zshrc.local       sourced last, so it can override anything
 #
 # Load order (see config/zsh/README.md):
-#   env.zsh → ~/.zshrc.pre.local → plugins/*.zsh → omz.zsh → options.zsh
-#   → functions/*.zsh → aliases/*.zsh → ~/.zshrc.d/*.zsh → ~/.zshrc.local
+#   env.zsh → ~/.zshrc.pre.local → plugins/*.zsh → omz.zsh → completions/*.zsh
+#   → options.zsh → functions/*.zsh → aliases/*.zsh → ~/.zshrc.d/*.zsh
+#   → ~/.zshrc.local
 
 # This file's real directory, following the symlink.
 WSB_ZSH_DIR=${${(%):-%x}:A:h}
@@ -23,6 +24,7 @@ source "$WSB_ZSH_DIR/env.zsh"
 [[ -r ~/.zshrc.pre.local ]] && source ~/.zshrc.pre.local
 _wsb_source_dir "$WSB_ZSH_DIR/plugins"
 source "$WSB_ZSH_DIR/omz.zsh"
+_wsb_source_dir "$WSB_ZSH_DIR/completions"
 source "$WSB_ZSH_DIR/options.zsh"
 _wsb_source_dir "$WSB_ZSH_DIR/functions"
 _wsb_source_dir "$WSB_ZSH_DIR/aliases"

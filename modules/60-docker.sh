@@ -121,11 +121,6 @@ install_docker_macos() {
 
 # --- Debian / Ubuntu ----------------------------------------------------------
 
-os_codename() {
-  # shellcheck disable=SC1091
-  (. /etc/os-release && printf '%s' "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}")
-}
-
 ensure_docker_service() {
   if [[ ! -d /run/systemd/system ]]; then
     log_info "systemd is not running (container or WSL?); start the daemon yourself: sudo dockerd"
@@ -164,7 +159,7 @@ install_docker_debian() {
     return 0
   fi
 
-  codename=$(os_codename)
+  codename=$(wsb_os_codename)
   [[ -n "$codename" ]] || { log_err "cannot determine the $WSB_OS release codename"; return 1; }
   pkg_apt_add_repo docker "https://download.docker.com/linux/$WSB_OS/gpg" \
     "deb [arch=$WSB_ARCH signed-by=@KEYRING@] https://download.docker.com/linux/$WSB_OS $codename stable"

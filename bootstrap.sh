@@ -227,6 +227,8 @@ run_module() {
     source "$WSB_ROOT/lib/pkg.sh"
     # shellcheck source=lib/files.sh
     source "$WSB_ROOT/lib/files.sh"
+    # shellcheck source=lib/tools.sh
+    source "$WSB_ROOT/lib/tools.sh"
     wsb_load_brew_env
     # shellcheck disable=SC1090
     source "$file"

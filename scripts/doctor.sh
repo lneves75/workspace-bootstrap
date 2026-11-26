@@ -19,6 +19,8 @@ source "$WSB_ROOT/lib/common.sh"
 source "$WSB_ROOT/lib/pkg.sh"
 # shellcheck source=lib/files.sh
 source "$WSB_ROOT/lib/files.sh"
+# shellcheck source=lib/tools.sh
+source "$WSB_ROOT/lib/tools.sh"
 # shellcheck source=versions.env
 source "$WSB_ROOT/versions.env"
 
@@ -86,6 +88,15 @@ while IFS= read -r p; do
   pkg_installed "$p" || missing+=("$p")
 done < <(pkg_list "$WSB_ROOT/packages/base.$(pkg_backend)")
 if [[ ${#missing[@]} -eq 0 ]]; then ok "base tools installed"; else bad "base tools missing: ${missing[*]}"; fi
+if is_debian; then
+  if pinned_binary_current yq "$YQ_VERSION" "$WSB_BIN_DIR/yq --version"; then
+    ok "yq $YQ_VERSION"
+  else
+    bad "yq $YQ_VERSION missing from $WSB_BIN_DIR"
+  fi
+elif command_exists yq; then
+  ok "$(yq --version 2>/dev/null)"
+fi
 
 # --- zsh -----------------------------------------------------------------------
 log_step "zsh"
@@ -115,6 +126,15 @@ fi
 log_step "vim"
 if command_exists vim; then ok "$(vim --version 2>/dev/null | sed -n 1p)"; else bad "vim not installed"; fi
 check_link "$WSB_ROOT/config/vim/vimrc" "$HOME/.vimrc"
+while read -r name _ commit _; do
+  [[ -z "$name" || "$name" == \#* ]] && continue
+  check_checkout "vim plugin $name" "$HOME/.vim/pack/workspace-bootstrap/start/$name" "$commit"
+done < "$WSB_ROOT/config/vim/plugins.txt"
+if command_exists vim; then
+  colors=$(vim -N -u "$HOME/.vimrc" -i NONE -es -c 'redir => g:o | silent echo get(g:, "colors_name", "none") | redir END' \
+    -c 'call writefile([trim(g:o)], "/dev/stdout")' -c 'qa!' </dev/null 2>/dev/null || true)
+  if [[ "$colors" == PaperColor ]]; then ok "vim loads PaperColor + plugins"; else bad "vim colorscheme is '${colors:-?}', expected PaperColor"; fi
+fi
 
 # --- git -----------------------------------------------------------------------
 log_step "git"
@@ -186,6 +206,19 @@ else
     if id -nG "$(id -un)" | tr ' ' '\n' | grep -qx docker; then ok "$(id -un) in docker group"; else warn "$(id -un) not in docker group"; fi
   fi
 fi
+
+# --- optional CLI tools ---------------------------------------------------------
+log_step "CLI tools (optional)"
+for f in "$WSB_ROOT"/modules/[0-9][0-9]-*.sh; do
+  grep -q '^TOOL_CMD=' "$f" || continue
+  # shellcheck disable=SC1090
+  line=$( source "$f"; tool_doctor )
+  case "$line" in
+    ok\ *)  ok "${line#ok }" ;;
+    bad\ *) bad "${line#bad }" ;;
+    *)      info "${line#info }" ;;
+  esac
+done
 
 # --- summary -----------------------------------------------------------------
 log_step "Result"

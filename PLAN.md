@@ -11,12 +11,14 @@ https://github.com/lneves75/workspace-bootstrap.
 | 1 | Docker on macOS | **colima** + docker CLI (no Docker Desktop) |
 | 2 | Language versions | **mise** manages Go, Python and Node |
 | 3 | Supported OS | macOS, Debian and Ubuntu only. Anything else **stops with an "unsupported OS" message** |
-| 4 | Vim | **minimal** vimrc, no plugins |
+| 4 | Vim | ~~minimal vimrc, no plugins~~. Superseded by #11: the Neovim setup ported, with pinned plugins |
 | 5 | Versioning | The default URL installs the **latest release**. A **tag in the URL** pins that release, and every later step uses that same version |
 | 6 | Idempotency | Every module checks each item (zsh, plugins, packages, config) and acts only on what is missing. A second run changes nothing, and the tests check this |
 | 7 | Optional modules | `mise` (languages) and `docker` prompt with **default No**. `--unattended` skips them unless `--with` names them. Already set up means no prompt. Once chosen, they are **remembered** (`~/.local/state/workspace-bootstrap/selected-modules`), so later runs and upgrades keep them current. `--forget` stops this |
-| 8 | Remote | `github.com/lneves75/workspace-bootstrap` is created **private**. It must become public before the curl one-liner can work |
+| 8 | Remote | `github.com/lneves75/workspace-bootstrap`, **public** since 2026-11-26 (needed for the curl one-liner) |
 | 9 | Language versions | The latest stable releases, pinned exactly: Go 1.27.4, Python 3.15.2, Node 26.13.1 (2026-11-26) |
+| 10 | CLI tools | kubectl, terraform, opentofu, terragrunt, flux, gh, aws, azure, gcloud: one **optional** module each. Homebrew on macOS. On Debian/Ubuntu, official apt repos, or pinned, sha256-verified downloads where none exists (terragrunt, flux, AWS CLI v2, yq). Plugins and completions load only when the tool exists. `k`/`tf` aliases |
+| 11 | Theme and vim | agnoster unless `ZSH_THEME` is set. Plugins compleat, copyfile, encode64. vim: the Neovim init.vim ported (PaperColor, lightline, fugitive, editorconfig as pinned native packages). jq and yq are standard |
 
 ## 1. User experience
 

@@ -1,0 +1,10 @@
+# Vim plugins, ported from the previous Neovim setup (~/.config/nvim/init.vim,
+# vim-plug). Installed with Vim's native package support into
+# ~/.vim/pack/workspace-bootstrap/start/<name>, each pinned to a commit.
+# No plugin manager is needed; bump a commit here to upgrade.
+#
+# name               repository                                          commit                                    # version
+papercolor-theme     https://github.com/NLKNguyen/papercolor-theme.git   0cfe64ffb24c21a6101b5f994ca342a74c977aef  # master 2024-03-12 (latest)
+lightline.vim        https://github.com/itchyny/lightline.vim.git        255f61db1a4cc36ee11eb479261d6bc471ed0819  # master 2026-10-05
+vim-fugitive         https://github.com/tpope/vim-fugitive.git           3b753cf8c6a4dcde6edee8827d464ba9b8c4a6f0  # master (last tag v3.7 is from 2022)
+editorconfig-vim     https://github.com/editorconfig/editorconfig-vim.git 3c2813f2566d9392ff3614248c5db43c3fda9d5f # v1.2.1
