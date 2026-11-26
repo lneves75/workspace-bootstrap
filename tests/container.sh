@@ -228,11 +228,21 @@ bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with mise > /tmp/out.log 2>&1
 grep -q '^# my change$' "$MISE_DEST" && grep -q "mise: already set up" /tmp/out.log \
   && pass "locally changed mise config kept" || { fail "local change lost"; sed -n '/==> mise/,/==>/p' /tmp/out.log; }
 
-# Our own outdated copy is updated to the new pins.
+# Our own outdated copy is updated to the new pins, by a plain unattended run
+# (no --with): mise was chosen before, so it is remembered (the upgrade case).
+SEL="$HOME/.local/state/workspace-bootstrap/selected-modules"
+grep -qx docker "$SEL" && grep -qx mise "$SEL" \
+  && pass "optional modules chosen at the prompt or with --with are remembered" || { fail "not remembered"; cat "$SEL"; }
 printf '[tools]\ngo = "1.0.0"\n' > "$MISE_DEST"; cp "$MISE_DEST" "$MISE_RECORD"
-bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with mise > /tmp/out.log 2>&1
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended > /tmp/out.log 2>&1
 cmp -s "$MISE_SRC" "$MISE_DEST" && grep -q "updated ~/.config/mise/conf.d/workspace-bootstrap.toml" /tmp/out.log \
   && pass "outdated managed copy updated" || { fail "managed copy not updated"; sed -n '/==> mise/,/==>/p' /tmp/out.log; }
+
+# --forget stops tracking (nothing is uninstalled); --with brings it back.
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --forget mise --only git > /tmp/out.log 2>&1
+! grep -qx mise "$SEL" && command -v mise >/dev/null && pass "--forget mise: no longer tracked, still installed" || { fail "--forget"; cat "$SEL"; }
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with mise > /tmp/out.log 2>&1
+grep -qx mise "$SEL" && pass "--with mise: tracked again" || fail "--with after --forget"
 
 # 3. tag URL pins its own version (existing checkout)
 install_from /t/install-v0.0.1.sh --unattended
@@ -280,5 +290,39 @@ bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --only zsh,vim > /tmp/out.log 2>
 if grep -q '==> zsh' /tmp/out.log && ! grep -q '==> docker' /tmp/out.log; then pass "--only"; else fail "--only"; cat /tmp/out.log; fi
 bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --skip nope > /tmp/out.log 2>&1 \
   && fail "unknown module accepted" || pass "unknown module rejected"
+
+# 11. doctor: healthy machine → exit 0; broken link → exit 1; bootstrap repairs it
+if bash "$BOOTSTRAP_DIR/bootstrap.sh" --doctor > /tmp/doctor.log 2>&1; then
+  pass "doctor: no problems on a bootstrapped machine"
+else
+  fail "doctor reports problems:"; grep '✖' /tmp/doctor.log
+fi
+grep -q "daemon not reachable" /tmp/doctor.log && pass "doctor: stopped docker daemon is a warning, not a failure" || fail "doctor daemon check"
+rm "$HOME/.vimrc"
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --doctor > /tmp/doctor.log 2>&1 \
+  && fail "doctor missed the removed ~/.vimrc" || { grep -q "✖.*\.vimrc missing" /tmp/doctor.log && pass "doctor: detects a missing link (exit 1)" || fail "doctor message"; }
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended > /tmp/out.log 2>&1
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --doctor > /tmp/doctor.log 2>&1 && pass "bootstrap re-run repairs it" || { fail "not repaired"; grep '✖' /tmp/doctor.log; }
+
+# 12. uninstall: hooks removed, backups restored, personal settings kept
+bash "$BOOTSTRAP_DIR/scripts/uninstall.sh" --dry-run > /tmp/out.log 2>&1
+[ -L "$HOME/.zshrc" ] && pass "uninstall --dry-run changes nothing" || fail "dry run changed ~/.zshrc"
+bash "$BOOTSTRAP_DIR/scripts/uninstall.sh" --yes > /tmp/out.log 2>&1 || { fail "uninstall failed"; cat /tmp/out.log; }
+[ ! -L "$HOME/.zshrc" ] && grep -qx '# my old zshrc' "$HOME/.zshrc" && pass "uninstall restores the original ~/.zshrc" || { fail "~/.zshrc not restored"; cat /tmp/out.log; }
+[ ! -e "$HOME/.vimrc" ] && [ ! -e "$HOME/.config/git/ignore" ] && pass "uninstall removes links without a backup" || fail "links left behind"
+inc=$(git config --global --get-all include.path || true)
+[ -z "$inc" ] && ! grep -q 'workspace-bootstrap' "$HOME/.gitconfig" && pass "uninstall removes the git include" || { fail "git include left"; cat "$HOME/.gitconfig"; }
+[ "$(git config --global user.name)" = "Test User" ] && [ "$(git config --global --get safe.directory)" = '*' ] \
+  && pass "uninstall keeps personal git settings" || { fail "personal git settings lost"; cat "$HOME/.gitconfig"; }
+[ ! -e "$HOME/.config/mise/conf.d/workspace-bootstrap.toml" ] && pass "uninstall removes the unchanged mise copy" || fail "mise copy left"
+[ -d "$HOME/.oh-my-zsh" ] && pass "uninstall keeps Oh My Zsh without --all" || fail "Oh My Zsh removed without --all"
+
+# ... and bootstrap brings everything back (the restored ~/.zshrc is backed up again)
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended > /tmp/out.log 2>&1
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --doctor > /tmp/doctor.log 2>&1 && pass "re-bootstrap after uninstall is healthy" || { fail "re-bootstrap"; grep '✖' /tmp/doctor.log; }
+
+bash "$BOOTSTRAP_DIR/scripts/uninstall.sh" --yes --all > /tmp/out.log 2>&1
+[ ! -e "$HOME/.oh-my-zsh" ] && [ ! -e "$BOOTSTRAP_DIR" ] && [ ! -e "$HOME/.local/state/workspace-bootstrap" ] \
+  && pass "uninstall --all removes Oh My Zsh, state and the checkout" || { fail "uninstall --all"; cat /tmp/out.log; }
 
 exit "$FAILS"

@@ -18,13 +18,17 @@ Usage: bootstrap.sh [options]
 
 Options:
   --with LIST        install these optional modules without asking
+  --forget LIST      stop keeping these optional modules up to date (no uninstall)
   --only LIST        run only these modules (comma separated; implies --with)
   --skip LIST        skip these modules
   --unattended       never prompt; optional modules are skipped unless --with
   --dry-run          show what would be done, change nothing
   --upgrade[=REF]    switch to the latest release (or REF) and re-run
+  --doctor           check this machine against the installed version (read-only)
   --list             list modules and exit
   -h, --help         show this help
+
+Undo the configuration changes: $WSB_ROOT/scripts/uninstall.sh
 
 Modules (* = optional, asked with default No):
 $(list_modules_annotated | sed 's/^/  /')
@@ -77,6 +81,7 @@ in_list() { # in_list NAME "a,b,c"
 WSB_ONLY=""
 WSB_SKIP=""
 WSB_WITH="${WSB_WITH:-}"
+WSB_FORGET=""
 WSB_UNATTENDED="${WSB_UNATTENDED:-0}"
 WSB_DRY_RUN=0
 WSB_UPGRADE=""
@@ -92,11 +97,14 @@ while [[ $# -gt 0 ]]; do
     --skip=*)      WSB_SKIP=${1#*=}; PASSTHRU+=("$1") ;;
     --with)        need_value $# "$1"; WSB_WITH=$2; PASSTHRU+=("$1" "$2"); shift ;;
     --with=*)      WSB_WITH=${1#*=}; PASSTHRU+=("$1") ;;
+    --forget)      need_value $# "$1"; WSB_FORGET=$2; shift ;;
+    --forget=*)    WSB_FORGET=${1#*=} ;;
     --unattended)  WSB_UNATTENDED=1; PASSTHRU+=("$1") ;;
     --dry-run)     WSB_DRY_RUN=1; PASSTHRU+=("$1") ;;
     --upgrade)     WSB_UPGRADE=latest ;;
     --upgrade=*)   WSB_UPGRADE=${1#*=} ;;
     --list)        list_modules_annotated; exit 0 ;;
+    --doctor)      exec bash "$WSB_ROOT/scripts/doctor.sh" ;;
     -h|--help)     usage; exit 0 ;;
     *)             usage >&2; die "Unknown option: $1" ;;
   esac
@@ -106,7 +114,7 @@ export WSB_UNATTENDED WSB_DRY_RUN
 
 # Validate module names given to --only / --skip / --with.
 ALL_MODULES=$(list_modules | tr '\n' ',')
-for name in ${WSB_ONLY//,/ } ${WSB_SKIP//,/ } ${WSB_WITH//,/ }; do
+for name in ${WSB_ONLY//,/ } ${WSB_SKIP//,/ } ${WSB_WITH//,/ } ${WSB_FORGET//,/ }; do
   in_list "$name" "$ALL_MODULES" || die "Unknown module: $name (see --list)"
 done
 
@@ -159,6 +167,32 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Optional modules you have chosen once (prompt or --with) are remembered, so
+# later runs (including `--upgrade --unattended`) keep them up to date
+# without asking again. --forget removes them from this list.
+SELECTED_FILE="$(wsb_state_dir)/selected-modules"
+REMEMBERED=""
+if [[ -f "$SELECTED_FILE" ]]; then REMEMBERED=$(tr '\n' ',' < "$SELECTED_FILE"); fi
+remember_module() {
+  in_list "$1" "$REMEMBERED" && return 0
+  [[ "$WSB_DRY_RUN" == 1 ]] && return 0
+  printf '%s\n' "$1" >> "$SELECTED_FILE"
+  REMEMBERED="$REMEMBERED,$1"
+}
+if [[ -n "$WSB_FORGET" ]]; then
+  for name in ${WSB_FORGET//,/ }; do
+    if in_list "$name" "$REMEMBERED"; then
+      log_info "forgetting optional module '$name' (it stays installed; future runs will ask again)"
+    fi
+  done
+  if [[ -f "$SELECTED_FILE" && "$WSB_DRY_RUN" != 1 ]]; then
+    tmp_sel=$(mktemp)
+    grep -vxF -f <(tr ',' '\n' <<< "$WSB_FORGET") "$SELECTED_FILE" > "$tmp_sel" || true
+    cat "$tmp_sel" > "$SELECTED_FILE"; rm -f "$tmp_sel"
+    REMEMBERED=$(tr '\n' ',' < "$SELECTED_FILE")
+  fi
+fi
+
 SUMMARY=()
 FAILED=0
 # Files replaced during this run are moved here. The folder is only created
@@ -178,7 +212,7 @@ RC_WOULD_ASK=13      # optional module, dry run: would prompt
 
 # shellcheck disable=SC2031  # $name is a local argument, not the subshell's
 run_module() {
-  local file=$1 name=$2 selected=$3 rc changes
+  local file=$1 name=$2 selected=$3 rc changes optional=0
   log_step "$name"
   : > "$CHANGES_FILE"
   set +e
@@ -215,12 +249,23 @@ run_module() {
         log_info "skipped"
         exit $RC_NOT_SELECTED
       fi
+      : > "$WSB_RUN_DIR/accepted-$name"   # tell the parent: chosen at the prompt
     fi
 
     module_install
   )
   rc=$?
   set -e
+  if module_is_optional "$file"; then optional=1; fi
+  # Remember an optional module once it is chosen: accepted at the prompt, or
+  # selected with --with/--only (even if it turned out to be set up already).
+  # A Docker that merely exists (e.g. Docker Desktop) is not remembered.
+  if [[ $optional == 1 ]]; then
+    if { [[ $rc == 0 ]] && [[ -f "$WSB_RUN_DIR/accepted-$name" ]]; } \
+       || { [[ $selected == 1 ]] && [[ $rc == 0 || $rc == "$RC_ALREADY" ]]; }; then
+      remember_module "$name"
+    fi
+  fi
 
   changes=$(wc -l < "$CHANGES_FILE" | tr -d ' ')
   case $rc in
@@ -251,7 +296,7 @@ while IFS= read -r file <&3; do
     continue
   fi
   selected=0
-  if in_list "$name" "$WSB_WITH" || in_list "$name" "$WSB_ONLY"; then selected=1; fi
+  if in_list "$name" "$WSB_WITH" || in_list "$name" "$WSB_ONLY" || in_list "$name" "$REMEMBERED"; then selected=1; fi
   run_module "$file" "$name" "$selected"
   # Later modules depend on earlier ones: stop at the first failure.
   [[ $FAILED == 0 ]] || break

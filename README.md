@@ -4,8 +4,8 @@ One command to set up a development workstation on **macOS**, **Debian** or **Ub
 zsh + Oh My Zsh, vim, git, curl, Docker, and Go / Python / Node managed by
 [mise](https://mise.jdx.dev).
 
-> **Status:** milestone 6 of 8. All modules work. Still to come: `doctor.sh`, `uninstall.sh`,
-> CI, and the first release.
+> **Status:** milestone 7 of 8. All modules, `doctor`, `uninstall` and CI are in place. Only the
+> first release remains.
 > See [PLAN.md](PLAN.md).
 
 ## Install
@@ -56,6 +56,11 @@ With `--unattended` they are skipped unless you name them with `--with`:
 ```sh
 ~/.workspace-bootstrap/bootstrap.sh --unattended --with mise,docker
 ```
+
+Once you choose an optional module (at the prompt or with `--with`), it is **remembered**. Later
+runs, including `wsb --upgrade --unattended`, keep it up to date without asking.
+`--forget mise` stops that; nothing is uninstalled. A Docker that was already there (Docker
+Desktop, OrbStack) is detected but not remembered.
 
 | Module | macOS | Debian / Ubuntu |
 |---|---|---|
@@ -118,6 +123,22 @@ goes to the backup folder first.
 - **Existing Docker:** if Docker Desktop, OrbStack or the distribution's `docker.io` is already
   installed, it is detected and left alone.
 
+## Checking and undoing
+
+```sh
+wsb --doctor                                        # read-only health check; exit 1 on problems
+~/.workspace-bootstrap/scripts/uninstall.sh         # undo the configuration (asks first)
+~/.workspace-bootstrap/scripts/uninstall.sh --all   # ...and remove Oh My Zsh and the checkout
+```
+
+`doctor` reports **✖** for anything a re-run of `bootstrap.sh` would fix. It reports **!** for
+things you may have chosen yourself: git identity unset, a different login shell, a local change
+to the mise config, or a stopped Docker daemon.
+
+`uninstall` removes the links and puts the newest backup of each file back. It also removes the
+`[include]` from `~/.gitconfig` (your settings stay) and the mise copy, unless you changed it.
+Packages, languages, Docker, your login shell and the backups are left alone, and it says so.
+
 ## Versions
 
 How the version is chosen, highest priority first:
@@ -139,7 +160,8 @@ to run if the checked-out code no longer matches it.
 ## Options
 
 ```
---with LIST       install these optional modules without asking
+--with LIST       install these optional modules without asking (remembered)
+--forget LIST     stop keeping these optional modules up to date (no uninstall)
 --only LIST       run only these modules (comma separated; implies --with)
 --skip LIST       skip these modules
 --unattended      never prompt; optional modules skipped unless --with
@@ -147,6 +169,7 @@ to run if the checked-out code no longer matches it.
 --dry-run         show what would be done, change nothing
 --upgrade[=REF]   switch version, then re-run
 --list            list modules
+--doctor          health check (read-only)
 ```
 
 Environment: `WSB_REF`, `WSB_REPO` (clone URL), `BOOTSTRAP_DIR` (default `~/.workspace-bootstrap`),
@@ -159,11 +182,15 @@ password.
 ## Development
 
 ```sh
-tests/run.sh                 # end-to-end tests in ubuntu:24.04, ubuntu:22.04, debian:12, fedora:41
+tests/run.sh                 # end-to-end tests in ubuntu:24.04, ubuntu:22.04, debian:12, fedora:41 (in parallel)
 tests/run.sh debian:12       # a single image
+CI=true tests/macos.sh       # real install on macOS: CI runners only, it changes $HOME
 docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable -x \
   install.sh bootstrap.sh lib/*.sh modules/*.sh scripts/*.sh tests/*.sh
 ```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs shellcheck and a zsh syntax
+check, the container suite (one job per image), and `tests/macos.sh` on `macos-latest`.
 
 Scripts must stay compatible with **bash 3.2**, the macOS system bash. That means no associative
 arrays and no `mapfile`, and empty arrays must be expanded as `${a[@]+"${a[@]}"}`.

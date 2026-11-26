@@ -181,9 +181,11 @@ wsb_load_brew_env() {
   return 0
 }
 
+# wsb_state_dir: path of the state directory. It is created on demand, but
+# never in dry-run mode.
 wsb_state_dir() {
   local dir="${XDG_STATE_HOME:-$HOME/.local/state}/workspace-bootstrap"
-  mkdir -p "$dir"
+  if [[ "${WSB_DRY_RUN:-0}" != 1 ]]; then mkdir -p "$dir"; fi
   printf '%s' "$dir"
 }
 

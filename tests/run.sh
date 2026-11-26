@@ -2,7 +2,7 @@
 #
 # End-to-end tests for install.sh / bootstrap.sh / release.sh in containers.
 #
-#   tests/run.sh                 # all images
+#   tests/run.sh                 # all images, in parallel
 #   tests/run.sh ubuntu:24.04    # just one
 #
 # Builds a throwaway git remote from the working tree with two releases
@@ -11,50 +11,41 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=tests/lib.sh
+source "$ROOT/tests/lib.sh"
 SUPPORTED_IMAGES=(ubuntu:24.04 ubuntu:22.04 debian:12)
 UNSUPPORTED_IMAGES=(fedora:41)
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/wsb-test.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
-# --- build the fake remote --------------------------------------------------
-src="$WORK/src"
-mkdir -p "$src"
-( cd "$ROOT" && tar --exclude=.git --exclude=.version -cf - . ) | ( cd "$src" && tar -xf - )
-(
-  cd "$src"
-  export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
-  export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
-  git init --quiet -b main
-  git add -A
-  git commit --quiet -m initial
-  scripts/release.sh v0.0.1 >/dev/null
-  scripts/release.sh v0.0.2 >/dev/null
-  git show v0.0.1:install.sh > "$WORK/install-v0.0.1.sh"
-  git show main:install.sh   > "$WORK/install-main.sh"
-)
-git clone --quiet --bare "$src" "$WORK/remote.git"
+make_fake_remote "$ROOT" "$WORK"
 cp "$ROOT/tests/container.sh" "$WORK/"
 
-# Sanity checks on release.sh output before going into containers.
-grep -qx 'WSB_PINNED_REF="v0.0.1"' "$WORK/install-v0.0.1.sh" || { echo "✖ tag install.sh not pinned"; exit 1; }
-grep -qx 'WSB_PINNED_REF=""'       "$WORK/install-main.sh"   || { echo "✖ main install.sh still pinned"; exit 1; }
-echo "✔ release.sh pins tags and reopens main"
-
-# --- run --------------------------------------------------------------------
 images=("$@")
 [[ ${#images[@]} -gt 0 ]] || images=("${SUPPORTED_IMAGES[@]}" "${UNSUPPORTED_IMAGES[@]}")
 
-fail=0
-for image in "${images[@]}"; do
-  mode=supported
+run_image() { # run_image IMAGE LOG
+  local image=$1 log=$2 mode=supported u
   for u in "${UNSUPPORTED_IMAGES[@]}"; do [[ "$u" == "$image" ]] && mode=unsupported; done
-  printf '\n\033[1m=== %s (%s) ===\033[0m\n' "$image" "$mode"
-  if docker run --rm -v "$WORK:/t:ro" "$image" sh /t/container.sh "$mode"; then
-    printf '\033[1;32mPASS\033[0m %s\n' "$image"
-  else
-    printf '\033[1;31mFAIL\033[0m %s\n' "$image"
-    fail=1
-  fi
+  {
+    printf '\n\033[1m=== %s (%s) ===\033[0m\n' "$image" "$mode"
+    docker run --rm -v "$WORK:/t:ro" "$image" sh /t/container.sh "$mode"
+  } > "$log" 2>&1
+}
+
+# Images run in parallel; each one's output is printed when it finishes.
+pids=() logs=()
+for image in "${images[@]}"; do
+  log="$WORK/${image//[:\/]/-}.log"
+  run_image "$image" "$log" &
+  pids+=($!); logs+=("$log")
+done
+
+fail=0
+for i in "${!images[@]}"; do
+  if wait "${pids[$i]}"; then status='\033[1;32mPASS\033[0m'; else status='\033[1;31mFAIL\033[0m'; fail=1; fi
+  grep -v -E 'Pulling|Pull complete|Digest:|Status:|Verifying|Download|Unable to find' "${logs[$i]}" || true
+  printf "${status} %s (%s checks passed)\n" "${images[$i]}" "$(grep -c '✔' "${logs[$i]}" || true)"
 done
 exit $fail

@@ -14,7 +14,7 @@ https://github.com/lneves75/workspace-bootstrap.
 | 4 | Vim | **minimal** vimrc, no plugins |
 | 5 | Versioning | The default URL installs the **latest release**. A **tag in the URL** pins that release, and every later step uses that same version |
 | 6 | Idempotency | Every module checks each item (zsh, plugins, packages, config) and acts only on what is missing. A second run changes nothing, and the tests check this |
-| 7 | Optional modules | `mise` (languages) and `docker` prompt with **default No**. `--unattended` skips them unless `--with` names them. Already set up means no prompt |
+| 7 | Optional modules | `mise` (languages) and `docker` prompt with **default No**. `--unattended` skips them unless `--with` names them. Already set up means no prompt. Once chosen, they are **remembered** (`~/.local/state/workspace-bootstrap/selected-modules`), so later runs and upgrades keep them current. `--forget` stops this |
 | 8 | Remote | `github.com/lneves75/workspace-bootstrap` is created **private**. It must become public before the curl one-liner can work |
 | 9 | Language versions | The latest stable releases, pinned exactly: Go 1.27.4, Python 3.15.2, Node 26.13.1 (2026-11-26) |
 
@@ -114,8 +114,10 @@ workspace-bootstrap/
 │   ├── doctor.sh             # checks installed versions against the pins
 │   └── uninstall.sh
 ├── tests/
-│   ├── run.sh                # builds a throwaway remote with 2 releases, runs container.sh per image
-│   └── container.sh          # scenarios run inside each container
+│   ├── lib.sh                # make_fake_remote: throwaway remote with 2 releases
+│   ├── run.sh                # runs container.sh per image, in parallel
+│   ├── container.sh          # scenarios run inside each container
+│   └── macos.sh              # real install on a macOS CI runner (CI=true only)
 ├── .github/workflows/ci.yml  # shellcheck + ubuntu, debian container, macos runners; tag-pin test
 ├── docs/
 └── README.md
@@ -181,5 +183,5 @@ also be listed as tools in `mise.toml`.
 4. ✅ **Vim and git**: minimal vimrc, shared gitconfig through an include, global gitignore, identity prompt (`WSB_GIT_NAME`/`WSB_GIT_EMAIL` for unattended runs).
 5. ✅ **mise and languages**: mise (brew / mise apt repo), managed-copy config, `mise install` of the latest stable Go/Python/Node, activation through the Oh My Zsh `mise` plugin.
 6. ✅ **Docker**: colima + CLI plugins on macOS, with a start-at-login prompt (default Yes). docker-ce from Docker's apt repo on Debian/Ubuntu, with the service enabled and the user added to the `docker` group. An existing Docker is detected and left alone.
-7. **Quality**: `doctor.sh`, `uninstall.sh`, CI matrix, plus a CI job that tags a test release and confirms the tag URL installs exactly that version.
+7. ✅ **Quality**: `doctor.sh` (read-only, ✖/!), `uninstall.sh` (restores backups, `--all`), CI with shellcheck, the container matrix (each job includes the tag-pin scenarios) and a real macOS run. `tests/run.sh` runs images in parallel.
 8. **Release**: `scripts/release.sh v0.1.0`, and the README with both one-liners.
