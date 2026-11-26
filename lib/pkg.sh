@@ -48,11 +48,12 @@ pkg_installed() {
 # Refresh the apt index only when it is missing or older than WSB_APT_MAX_AGE
 # minutes (default 360). We keep our own stamp because apt sets the mtime of
 # downloaded lists to the server's Last-Modified time.
+# pkg_apt_refresh [--force]
 pkg_apt_refresh() {
   local stamp max_age=${WSB_APT_MAX_AGE:-360}
   stamp="$(wsb_state_dir)/apt-update.stamp"
 
-  if ls /var/lib/apt/lists/*_Packages* >/dev/null 2>&1 \
+  if [[ "${1:-}" != --force ]] && ls /var/lib/apt/lists/*_Packages* >/dev/null 2>&1 \
      && [[ -f "$stamp" ]] && [[ -z "$(find "$stamp" -mmin +"$max_age" 2>/dev/null)" ]]; then
     log_ok "apt index is fresh"
     return 0
@@ -141,4 +142,47 @@ pkg_ensure_list() {
     return 0
   fi
   pkg_ensure "${pkgs[@]}"
+}
+
+# pkg_apt_add_repo NAME KEY_URL REPO_LINE
+# Add a third-party apt repository signed by the key at KEY_URL. In REPO_LINE,
+# @KEYRING@ is replaced by the keyring path, e.g.
+#   "deb [arch=amd64 signed-by=@KEYRING@] https://example.com/deb stable main"
+# Idempotent: nothing happens if the keyring and the same list file exist.
+pkg_apt_add_repo() {
+  local name=$1 key_url=$2 line=$3
+  local keyring="/etc/apt/keyrings/$name.gpg" list="/etc/apt/sources.list.d/$name.list"
+  line=${line//@KEYRING@/$keyring}
+
+  if [[ -s "$keyring" && -f "$list" && "$(cat "$list")" == "$line" ]]; then
+    log_ok "apt repository '$name' already configured"
+    return 0
+  fi
+  if [[ "${WSB_DRY_RUN:-0}" == 1 ]]; then
+    log_info "would add apt repository '$name'"
+    mark_changed "would add apt repository $name"
+    return 0
+  fi
+
+  log_info "adding apt repository '$name'"
+  local tmp
+  tmp=$(mktemp)
+  if ! curl -fsSL "$key_url" -o "$tmp.key"; then
+    rm -f "$tmp" "$tmp.key"
+    log_err "could not download signing key $key_url"
+    return 1
+  fi
+  # Keys come either ASCII-armored or binary; apt wants binary in a .gpg file.
+  if grep -q -- '-----BEGIN PGP PUBLIC KEY BLOCK-----' "$tmp.key"; then
+    gpg --batch --yes --dearmor -o "$tmp" "$tmp.key"
+  else
+    cp "$tmp.key" "$tmp"
+  fi
+  as_root install -d -m 755 /etc/apt/keyrings
+  as_root install -m 644 "$tmp" "$keyring"
+  printf '%s\n' "$line" > "$tmp.list"
+  as_root install -m 644 "$tmp.list" "$list"
+  rm -f "$tmp" "$tmp.key" "$tmp.list"
+  mark_changed "added apt repository $name"
+  pkg_apt_refresh --force
 }

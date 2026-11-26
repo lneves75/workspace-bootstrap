@@ -1,0 +1,18 @@
+# Language versions installed by workspace-bootstrap.
+#
+# Installed as a copy at ~/.config/mise/conf.d/workspace-bootstrap.toml. It is
+# a copy rather than a symlink because `mise use -g` rewrites the file that
+# defines a tool. If you change that copy (by hand or with `mise use -g`),
+# bootstrap keeps your version and warns instead of overwriting it.
+#
+# For your own global choices, prefer ~/.config/mise/config.toml: it is loaded
+# after this file and overrides it. Projects override both with their own
+# mise.toml / .tool-versions.
+#
+# Pinned to the latest stable releases as of 2026-11-26. Bump them in a
+# commit, run the tests, then cut a release.
+
+[tools]
+go = "1.27.4"
+python = "3.15.2"
+node = "26.13.1"

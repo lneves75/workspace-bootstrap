@@ -5,7 +5,8 @@
 # real changes and respect --dry-run.
 
 # Short form of a path for log lines: /home/me/.zshrc -> ~/.zshrc
-_tilde() { printf '%s' "${1/#$HOME/~}"; }
+# (The "~" comes from a variable: bash 5 would tilde-expand a literal one.)
+_tilde() { local t='~'; printf '%s' "${1/#"$HOME"/$t}"; }
 
 # link_file SRC DEST
 # Make DEST a symlink to SRC. Anything already at DEST is moved to
@@ -40,6 +41,64 @@ link_file() {
   ln -s "$src" "$dest"
   log_ok "linked $(_tilde "$dest") → $(_tilde "$src")"
   mark_changed "linked $(_tilde "$dest")"
+}
+
+# install_managed_copy SRC DEST
+# For config files that tools rewrite themselves (so a symlink into the repo
+# would get modified). DEST is a copy of SRC; we keep a record of what we
+# last wrote, so we can tell our old copy from one the user has changed:
+#   missing                    → copy
+#   identical to SRC           → nothing to do
+#   unchanged since we wrote it→ update to the new SRC
+#   changed by the user        → keep it, with a warning
+managed_copy_record() { printf '%s/managed%s' "$(wsb_state_dir)" "$1"; }
+
+# managed_copy_settled SRC DEST: true when install_managed_copy would change
+# nothing (DEST matches SRC, or the user has changed DEST and it is kept).
+managed_copy_settled() {
+  local src=$1 dest=$2 record
+  record=$(managed_copy_record "$dest")
+  [[ -e "$dest" || -L "$dest" ]] || return 1
+  if [[ -f "$dest" && ! -L "$dest" ]] && cmp -s "$src" "$dest"; then return 0; fi
+  # Exists and differs: settled unless it is still our own (outdated) copy.
+  ! { [[ -f "$record" && ! -L "$dest" ]] && cmp -s "$dest" "$record"; }
+}
+
+install_managed_copy() {
+  local src=$1 dest=$2 record
+  record=$(managed_copy_record "$dest")
+  [[ -f "$src" ]] || { log_err "missing source: $src"; return 1; }
+
+  if [[ -f "$dest" && ! -L "$dest" ]] && cmp -s "$src" "$dest"; then
+    log_ok "$(_tilde "$dest") up to date"
+    if [[ "${WSB_DRY_RUN:-0}" != 1 ]] && ! cmp -s "$src" "$record" 2>/dev/null; then
+      mkdir -p "$(dirname "$record")"; cp "$src" "$record"
+    fi
+    return 0
+  fi
+
+  local action=install
+  if [[ -e "$dest" || -L "$dest" ]]; then
+    if [[ -f "$record" && ! -L "$dest" ]] && cmp -s "$dest" "$record"; then
+      action=update
+    else
+      log_warn "$(_tilde "$dest") was changed locally; keeping your version (repo version: $(_tilde "$src"))"
+      return 0
+    fi
+  fi
+
+  if [[ "${WSB_DRY_RUN:-0}" == 1 ]]; then
+    log_info "would $action $(_tilde "$dest")"
+    mark_changed "would $action $(_tilde "$dest")"
+    return 0
+  fi
+  mkdir -p "$(dirname "$dest")" "$(dirname "$record")"
+  cp "$src" "$dest"
+  cp "$src" "$record"
+  local done_msg="installed"
+  [[ "$action" == update ]] && done_msg="updated"
+  log_ok "$done_msg $(_tilde "$dest")"
+  mark_changed "$done_msg $(_tilde "$dest")"
 }
 
 # git_pinned_checkout NAME DIR URL COMMIT

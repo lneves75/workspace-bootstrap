@@ -4,8 +4,8 @@ One command to set up a development workstation on **macOS**, **Debian** or **Ub
 zsh + Oh My Zsh, vim, git, curl, Docker, and Go / Python / Node managed by
 [mise](https://mise.jdx.dev).
 
-> **Status:** milestone 4 of 8. Everything except the optional mise (languages) and Docker
-> modules works; those two are still stubs.
+> **Status:** milestone 5 of 8. Everything except the optional Docker module works; Docker is
+> still a stub.
 > See [PLAN.md](PLAN.md).
 
 ## Install
@@ -64,7 +64,7 @@ With `--unattended` they are skipped unless you name them with `--with`:
 | git | `~/.gitconfig` includes `config/git/gitconfig`, global gitignore, name/email | same |
 | zsh | zsh, Oh My Zsh + plugins (pinned), `~/.zshrc` → `config/zsh/zshrc`, login shell | same |
 | vim | system vim + `~/.vimrc` → `config/vim/vimrc` | vim (apt) + same |
-| mise *(optional)* | mise → Go, Python, Node (pinned in `config/mise/config.toml`) | same |
+| mise *(optional)* | mise (brew) → Go 1.27.4, Python 3.15.2, Node 26.13.1 | mise (its apt repo) → same |
 | docker *(optional)* | colima + docker CLI | docker-ce (official apt repo) |
 
 ## Configuration
@@ -89,6 +89,8 @@ config/zsh/
 config/vim/vimrc           → ~/.vimrc (minimal, no plugins)
 config/git/gitconfig       included at the top of ~/.gitconfig (aliases, pull/push defaults)
 config/git/ignore          → ~/.config/git/ignore (global gitignore)
+config/mise/workspace-bootstrap.toml
+                           copied to ~/.config/mise/conf.d/ (language versions)
 ```
 
 Personal, per-machine settings never go in the repo, and workspace-bootstrap never edits them:
@@ -98,9 +100,10 @@ Personal, per-machine settings never go in the repo, and workspace-bootstrap nev
 | zsh | `~/.zshrc.pre.local` (before Oh My Zsh, e.g. `WSB_EXTRA_PLUGINS=(kubectl)`), `~/.zshrc.d/*.zsh`, `~/.zshrc.local` (last) |
 | vim | `~/.vimrc.local` |
 | git | `~/.gitconfig` itself. It is not a symlink: it holds your name and email, and its settings override the shared ones |
+| mise | `~/.config/mise/config.toml` overrides the pinned versions. The conf.d file is a managed copy: if you change it (or `mise use -g` does), it is kept |
 
 The folder READMEs ([zsh](config/zsh/README.md), [vim](config/vim/README.md),
-[git](config/git/README.md)) explain the load order and how to add things. The only change made
+[git](config/git/README.md), [mise](config/mise/README.md)) explain the load order and how to add things. The only change made
 to an existing `~/.gitconfig` is a single `[include]` added at the top. A copy of the original
 goes to the backup folder first.
 
@@ -169,8 +172,9 @@ loaded, and Homebrew is already on PATH. It defines:
 
 Helpers:
 - packages: `pkg_ensure NAME…`, `pkg_ensure_list base` (reads `packages/base.<brew|apt>`),
-  `pkg_installed`, `pkg_apt_refresh`
+  `pkg_installed`, `pkg_apt_refresh`, `pkg_apt_add_repo NAME KEY_URL LINE`
 - files: `link_file SRC DEST` (symlink, backing up what was there),
+  `install_managed_copy SRC DEST` (a copy for files that tools rewrite: updated only while unchanged),
   `git_pinned_checkout NAME DIR URL COMMIT` (leaves checkouts it didn't make alone)
 - platform and privileges: `is_macos`, `is_debian`, `as_root`
 - prompts: `ask_yes_no "Question?" n`, `value=$(ask_value "Question:")`

@@ -16,6 +16,7 @@ https://github.com/lneves75/workspace-bootstrap.
 | 6 | Idempotency | Every module checks each item (zsh, plugins, packages, config) and acts only on what is missing. A second run changes nothing, and the tests check this |
 | 7 | Optional modules | `mise` (languages) and `docker` prompt with **default No**. `--unattended` skips them unless `--with` names them. Already set up means no prompt |
 | 8 | Remote | `github.com/lneves75/workspace-bootstrap` is created **private**. It must become public before the curl one-liner can work |
+| 9 | Language versions | The latest stable releases, pinned exactly: Go 1.27.4, Python 3.15.2, Node 26.13.1 (2026-11-26) |
 
 ## 1. User experience
 
@@ -106,7 +107,7 @@ workspace-bootstrap/
 │   │   └── README.md         # load order, how to add things
 │   ├── vim/vimrc             # → ~/.vimrc
 │   ├── git/                  # gitconfig (included by ~/.gitconfig), ignore (→ ~/.config/git/ignore)
-│   └── mise/config.toml      # milestone 5: [tools] go, python, node
+│   └── mise/workspace-bootstrap.toml  # [tools] go, python, node, copied to ~/.config/mise/conf.d/
 ├── versions.env              # pinned Oh My Zsh commit (later: mise version)
 ├── scripts/
 │   ├── release.sh            # creates the release commit with the version written in, tags, resets main
@@ -126,7 +127,7 @@ workspace-bootstrap/
 |---|---|---|
 | git, curl, zsh, vim, jq | brew | apt |
 | mise | `brew install mise` | mise's official apt repo (`mise.jdx.dev/deb`) |
-| Go, Python, Node | `mise install` from `~/.config/mise/config.toml`, which is linked to `config/mise/config.toml` | same |
+| Go, Python, Node | `mise install` of the pins in `config/mise/workspace-bootstrap.toml`, a **managed copy** in `~/.config/mise/conf.d/`. It is not a symlink, because `mise use -g` rewrites the file that defines a tool. `~/.config/mise/config.toml` stays personal and overrides it | same |
 | Docker | `brew install colima docker docker-compose docker-buildx`, link the Compose/Buildx plugins into Docker's CLI plugin folder, run `colima start` (skipped with `--unattended`) | Docker's official apt repo: `docker-ce`, `docker-ce-cli`, `containerd.io`, compose/buildx plugins. Adds the user to the `docker` group |
 
 Python comes from mise's precompiled builds, so nothing needs compiling. `pipx` and `uv` can
@@ -178,7 +179,7 @@ also be listed as tools in `mise.toml`.
 2. ✅ **Package layer**: `pkg.sh`, Homebrew, `packages/base.{brew,apt}`, base tools, idempotency and optional-module framework.
 3. ✅ **Shell**: zsh, pinned Oh My Zsh and plugins, `config/zsh/` tree (plugins, aliases, functions, options), personal override files, chsh, lazy sudo.
 4. ✅ **Vim and git**: minimal vimrc, shared gitconfig through an include, global gitignore, identity prompt (`WSB_GIT_NAME`/`WSB_GIT_EMAIL` for unattended runs).
-5. **mise and languages**: install mise, `config/mise.toml`, `mise install`, version checks.
+5. ✅ **mise and languages**: mise (brew / mise apt repo), managed-copy config, `mise install` of the latest stable Go/Python/Node, activation through the Oh My Zsh `mise` plugin.
 6. **Docker**: colima on macOS, docker-ce on Debian/Ubuntu.
 7. **Quality**: `doctor.sh`, `uninstall.sh`, CI matrix, plus a CI job that tags a test release and confirms the tag URL installs exactly that version.
 8. **Release**: `scripts/release.sh v0.1.0`, and the README with both one-liners.

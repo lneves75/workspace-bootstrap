@@ -167,6 +167,45 @@ else
   fail "'script' not available for prompt test"
 fi
 
+# 2d. mise module (optional): Go, Python, Node at the pinned versions
+MISE_SRC="$BOOTSTRAP_DIR/config/mise/workspace-bootstrap.toml"
+MISE_DEST="$HOME/.config/mise/conf.d/workspace-bootstrap.toml"
+MISE_RECORD="$HOME/.local/state/workspace-bootstrap/managed$MISE_DEST"
+pin() { sed -n "s/^$1 = \"\(.*\)\"/\1/p" "$MISE_SRC"; }
+GO_V=$(pin go); PY_V=$(pin python); NODE_V=$(pin node)
+
+command -v mise >/dev/null && fail "mise installed although never selected" || pass "mise not installed unless selected"
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with mise > /tmp/out.log 2>&1
+grep -q "mise: changed (" /tmp/out.log && pass "--with mise installs mise and languages" || { fail "mise install"; tail -n 40 /tmp/out.log; }
+[ -f "$MISE_DEST" ] && [ ! -L "$MISE_DEST" ] && cmp -s "$MISE_SRC" "$MISE_DEST" \
+  && pass "mise config installed as a managed copy (not a symlink)" || fail "mise config copy"
+
+zsh -i -c 'go version; python --version; node --version' > /tmp/lang.out 2>&1
+grep -q "go$GO_V " /tmp/lang.out && pass "go $GO_V active in zsh" || { fail "go $GO_V"; cat /tmp/lang.out; }
+grep -q "Python $PY_V" /tmp/lang.out && pass "python $PY_V active in zsh" || { fail "python $PY_V"; cat /tmp/lang.out; }
+grep -q "v$NODE_V" /tmp/lang.out && pass "node $NODE_V active in zsh" || { fail "node $NODE_V"; cat /tmp/lang.out; }
+
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with mise > /tmp/out.log 2>&1
+grep -q "mise: already set up" /tmp/out.log && ! grep -q ": changed (" /tmp/out.log \
+  && pass "mise re-run changes nothing" || { fail "mise re-run"; sed -n '/Summary/,$p' /tmp/out.log; }
+
+# Once installed, an interactive run no longer asks about it.
+{ sleep 1; printf '\n'; sleep 3; } | script -qec "bash $BOOTSTRAP_DIR/bootstrap.sh" /dev/null > /tmp/out.log 2>&1
+! grep -q "Install Go, Python and Node" /tmp/out.log && grep -q "mise: already set up" /tmp/out.log \
+  && pass "installed optional module is not asked again" || { fail "asked again"; sed -n '/Summary/,$p' /tmp/out.log; }
+
+# A copy changed by the user (e.g. `mise use -g`) is kept.
+printf '# my change\n' >> "$MISE_DEST"
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with mise > /tmp/out.log 2>&1
+grep -q '^# my change$' "$MISE_DEST" && grep -q "mise: already set up" /tmp/out.log \
+  && pass "locally changed mise config kept" || { fail "local change lost"; sed -n '/==> mise/,/==>/p' /tmp/out.log; }
+
+# Our own outdated copy is updated to the new pins.
+printf '[tools]\ngo = "1.0.0"\n' > "$MISE_DEST"; cp "$MISE_DEST" "$MISE_RECORD"
+bash "$BOOTSTRAP_DIR/bootstrap.sh" --unattended --with mise > /tmp/out.log 2>&1
+cmp -s "$MISE_SRC" "$MISE_DEST" && grep -q "updated ~/.config/mise/conf.d/workspace-bootstrap.toml" /tmp/out.log \
+  && pass "outdated managed copy updated" || { fail "managed copy not updated"; sed -n '/==> mise/,/==>/p' /tmp/out.log; }
+
 # 3. tag URL pins its own version (existing checkout)
 install_from /t/install-v0.0.1.sh --unattended
 expect_ref v0.0.1 "tag URL pins version (update path)"
